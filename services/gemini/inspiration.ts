@@ -1,4 +1,3 @@
-
 import { getClient } from './client';
 import { Quote } from '../../types';
 
@@ -6,9 +5,9 @@ export const generateInspirationalQuote = async (): Promise<Quote | null> => {
     const ai = getClient();
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Genera una citazione famosa, positiva e ispirante.
-        Restituisci SOLO un oggetto JSON in questo formato: { "text": "testo della citazione", "author": "autore" }`,
+        model: "gemini-3-flash-preview",
+        contents: `Genera una citazione famosa, positiva e ispirante. 
+        Restituisci SOLO un oggetto JSON: { "text": "testo della citazione", "author": "autore" }`,
       });
   
       let text = response.text || "{}";
@@ -33,7 +32,7 @@ export const generateGoodDeed = async (): Promise<string | null> => {
     const ai = getClient();
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-3-flash-preview",
             contents: `Suggerisci una piccola "Buona Azione" o gesto di gentilezza che una persona può fare oggi stesso (max 10 parole).
             Restituisci SOLO un oggetto JSON: { "text": "..." }`
         });
