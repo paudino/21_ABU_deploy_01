@@ -1,4 +1,4 @@
-
+// Fix: Change named import { React } to default import React
 import React, { useState, useEffect } from 'react';
 import { User, Quote } from '../types';
 import { IconHeart } from './Icons';
@@ -14,10 +14,6 @@ interface HeaderProps {
   onLoginClick: () => void;
 }
 
-/**
- * Header Moderno "Sunshine".
- * Include il Sole interattivo che genera citazioni e l'area utente.
- */
 export const Header: React.FC<HeaderProps> = ({ 
   currentUser, 
   showFavoritesOnly, 
@@ -28,36 +24,31 @@ export const Header: React.FC<HeaderProps> = ({
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
 
-  // Carica citazione iniziale dal DB (veloce) o genera se vuoto
   useEffect(() => {
-    loadInitialQuote();
+    // Delay iniziale di 3 secondi per non sovraccaricare l'API al boot
+    const timer = setTimeout(() => {
+        loadInitialQuote();
+    }, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   const loadInitialQuote = async () => {
       const q = await db.getRandomQuote();
       if (q) setQuote(q);
-      else fetchNewQuote(); // Se DB vuoto, prova a caricarne una una tantum
+      else fetchNewQuote();
   };
 
   const fetchNewQuote = async () => {
     if (loadingQuote) return;
     setLoadingQuote(true);
     try {
-        // 1. Chiedi a Gemini una NUOVA citazione
         const newQuote = await generateInspirationalQuote();
-        
         if (newQuote) {
-            // 2. Salvala nel DB (gestisce deduplica e limite 50)
             await db.saveQuote(newQuote);
-            
-            // 3. Aggiorna la UI
             setQuote(newQuote);
-        } else {
-            // Fallback: se AI fallisce, prova a prenderne una a caso dal DB se ce ne sono
-            if (!quote) {
-                 const dbQuote = await db.getRandomQuote();
-                 if (dbQuote) setQuote(dbQuote);
-            }
+        } else if (!quote) {
+             const dbQuote = await db.getRandomQuote();
+             if (dbQuote) setQuote(dbQuote);
         }
     } catch (e) {
         console.error("Errore recupero citazione", e);
@@ -67,18 +58,14 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const handleHeartClick = () => {
-      if (currentUser) {
-          onToggleFavorites();
-      } else {
-          onLoginClick();
-      }
+      if (currentUser) onToggleFavorites();
+      else onLoginClick();
   };
 
   return (
     <header className="sticky top-0 z-40 shadow-lg shadow-orange-500/20 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-auto min-h-[5rem] py-2 flex flex-col md:flex-row items-center justify-between gap-4">
         
-        {/* LOGO & SOLE INTERATTIVO */}
         <div className="flex items-center gap-4 self-start md:self-center">
           <Tooltip content="Clicca per una nuova ispirazione!" position="bottom">
             <button 
@@ -86,7 +73,6 @@ export const Header: React.FC<HeaderProps> = ({
                 disabled={loadingQuote}
                 className="group relative flex-shrink-0 outline-none"
             >
-                {/* Icona Sole SVG */}
                 <div className={`w-12 h-12 text-yellow-100 transition-transform duration-700 ease-in-out ${loadingQuote ? 'animate-[spin_1s_linear_infinite]' : 'group-hover:rotate-45'}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-full h-full drop-shadow-md">
                         <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM21.75 12a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5H21a.75.75 0 0 1 .75.75ZM17.834 18.894a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 1 0-1.061 1.06l1.59 1.591ZM12 18a.75.75 0 0 1 .75.75V21a.75.75 0 0 1-1.5 0v-2.25A.75.75 0 0 1 12 18ZM7.758 17.303a.75.75 0 0 0-1.061-1.06l-1.591 1.59a.75.75 0 0 0 1.06 1.061l1.591-1.59ZM6 12a.75.75 0 0 1-.75.75H3a.75.75 0 0 1 0-1.5h2.25A.75.75 0 0 1 6 12ZM6.697 7.757a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 0 0-1.061 1.06l1.59 1.591Z" />
@@ -105,12 +91,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* CITAZIONE CENTRALE (Visibile su desktop e tablet) */}
         <div className="flex-1 px-4 md:px-12 text-center hidden md:block">
             <div className="relative inline-block max-w-xl">
                 <span className="absolute -top-4 -left-2 text-4xl text-white/30 font-serif leading-none">“</span>
                 <p className={`font-display italic text-lg text-white/95 leading-snug transition-opacity duration-500 ${loadingQuote ? 'opacity-0' : 'opacity-100'}`}>
-                   {quote ? quote.text : "Clicca il sole per ispirarti..."}
+                   {quote ? quote.text : "Cercando ispirazione per te..."}
                 </p>
                 <span className="absolute -bottom-4 -right-2 text-4xl text-white/30 font-serif leading-none">”</span>
             </div>
@@ -121,10 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
         </div>
 
-        {/* AREA UTENTE */}
         <div className="flex items-center gap-3 self-end md:self-center">
-            
-          {/* Tasto Preferiti (Visibile SEMPRE) */}
           <Tooltip content={currentUser ? (showFavoritesOnly ? "Mostra tutte le notizie" : "Vedi i miei salvati") : "Accedi per vedere i preferiti"}>
               <button 
                 onClick={handleHeartClick}
@@ -147,12 +129,8 @@ export const Header: React.FC<HeaderProps> = ({
                     <span className="text-sm font-bold leading-none">{currentUser.username}</span>
                 </div>
               </div>
-              
               <Tooltip content="Disconnetti">
-                  <button 
-                    onClick={onLogout} 
-                    className="text-white/80 hover:text-white hover:bg-white/10 p-2 rounded-lg transition"
-                  >
+                  <button onClick={onLogout} className="text-white/80 hover:text-white hover:bg-white/10 p-2 rounded-lg transition">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                         <polyline points="16 17 21 12 16 7"></polyline>
@@ -162,21 +140,16 @@ export const Header: React.FC<HeaderProps> = ({
               </Tooltip>
             </>
           ) : (
-            <button 
-              onClick={onLoginClick}
-              className="bg-white text-orange-600 px-5 py-2 rounded-full font-bold text-sm hover:bg-orange-50 transition shadow-lg shadow-black/10 transform hover:-translate-y-0.5"
-            >
+            <button onClick={onLoginClick} className="bg-white text-orange-600 px-5 py-2 rounded-full font-bold text-sm hover:bg-orange-50 transition shadow-lg shadow-black/10 transform hover:-translate-y-0.5">
               Accedi
             </button>
           )}
         </div>
-
       </div>
       
-      {/* Citazione Mobile (Visibile solo sotto md) */}
       <div className="md:hidden bg-black/10 px-4 py-3 text-center border-t border-white/10">
           <p className="text-sm italic text-white/90">
-              "{quote ? quote.text : "..."}"
+              "{quote ? quote.text : "Un momento di riflessione..."}"
           </p>
       </div>
     </header>
