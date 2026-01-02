@@ -1,14 +1,12 @@
-
 import { getClient } from './client';
 import { Article } from '../../types';
 
 /**
- * Cerca notizie positive usando Gemini API direttamente dal browser.
+ * Cerca notizie positive usando il nuovo modello gemini-3-flash-preview.
  */
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
   const ai = getClient();
   
-  // Prompt ingegnerizzato per ottenere JSON pulito e notizie positive
   const prompt = `
     Task: Agisci come un giornalista ottimista. Cerca sul web 3 notizie RECENTI (ultima settimana) e POSITIVE riguardanti: "${promptCategory}".
     
@@ -32,19 +30,18 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }], // Abilita Grounding con Google Search
+        tools: [{ googleSearch: {} }], // Grounding attivo per notizie reali
       }
     });
 
     let text = response.text || "[]";
     
-    // Pulizia del testo per estrarre solo il JSON (rimuove markdown ```json ... ```)
+    // Pulizia markdown se presente
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     
-    // Tentativo di parsing
     const firstBracket = text.indexOf('[');
     const lastBracket = text.lastIndexOf(']');
     
@@ -54,26 +51,16 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
 
     const rawArticles = JSON.parse(text);
 
-    // Mappatura e validazione dati
-    const validatedArticles: Article[] = rawArticles.map((a: any) => ({
+    return rawArticles.map((a: any) => ({
       title: a.title || "Notizia Positiva",
       summary: a.summary || "Contenuto non disponibile",
       source: a.source || "Web",
-      // Generiamo un URL di ricerca Google se l'URL originale non è fornito dal grounding in modo pulito nel JSON
-      url: `https://www.google.com/search?q=${encodeURIComponent((a.title || "") + " notizia")}`,
+      url: `https://www.google.com/search?q=${encodeURIComponent((a.title || "") + " " + (a.source || ""))}`,
       date: a.date || new Date().toISOString().split('T')[0],
       category: categoryLabel,
-      imageUrl: '', // Verrà generata in un secondo momento
+      imageUrl: '', 
       sentimentScore: a.sentimentScore || 0.8
     }));
-
-    // Se il grounding ha fornito metadati reali (link alle fonti), proviamo ad usarli
-    if (response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
-       // Logica opzionale: si potrebbe arricchire l'URL con i link reali trovati
-       // Ma per ora manteniamo la ricerca Google per stabilità dell'UI
-    }
-
-    return validatedArticles;
 
   } catch (error) {
     console.error("Errore fetchPositiveNews:", error);
