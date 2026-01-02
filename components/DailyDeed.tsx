@@ -1,4 +1,4 @@
-
+// Fix: Change named import { React } to default import React
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/dbService';
 import { generateGoodDeed } from '../services/geminiService';
@@ -11,7 +11,11 @@ export const DailyDeed: React.FC = () => {
   const [accepted, setAccepted] = useState(false);
 
   useEffect(() => {
-    loadDeed();
+    // Delay di 5 secondi per permettere alle news di caricarsi indisturbate
+    const timer = setTimeout(() => {
+        loadDeed();
+    }, 5500);
+    return () => clearTimeout(timer);
   }, []);
 
   const loadDeed = async () => {
@@ -21,32 +25,24 @@ export const DailyDeed: React.FC = () => {
         if (existingDeed) {
             setDeed(existingDeed);
         } else {
-            // Se non c'è nel DB, proviamo a generarlo con AI
             const text = await generateGoodDeed();
             if (text) {
-                // Proviamo a salvarlo, ma se fallisce (es. errore DB) lo mostriamo comunque
-                db.saveDeed(text).catch(e => console.warn("Salvataggio deed fallito", e));
+                db.saveDeed(text).catch(() => {});
                 setDeed({ id: 'temp-ai', text });
             } else {
-                // Fallback estremo se anche AI fallisce o DB è rotto
                 setDeed({ id: 'fallback', text: 'Fai un sorriso a chi incontri oggi.' });
             }
         }
     } catch (e) {
-        console.error("Errore deed:", e);
-        // Fallback in caso di eccezione
         setDeed({ id: 'fallback-err', text: 'Regala un complimento sincero a qualcuno.' });
     } finally {
         setLoading(false);
     }
   };
 
-  const handleAccept = () => {
-      setAccepted(true);
-  };
+  const handleAccept = () => setAccepted(true);
 
-  // Rimosso il return null per garantire visibilità
-  if (!deed && loading) return null; // Mostra nulla solo durante il primo caricamento
+  if (!deed && loading) return null;
   if (!deed) return null; 
 
   return (
@@ -58,10 +54,7 @@ export const DailyDeed: React.FC = () => {
                 : 'bg-white shadow-sm border-indigo-50 hover:shadow-md'
             }
        `}>
-           
            <div className="flex flex-col md:flex-row items-center justify-between py-3 px-5 gap-4">
-               
-               {/* Icona e Label */}
                <div className="flex items-center gap-3 md:border-r md:border-slate-100 md:pr-4 min-w-max">
                    <div className={`
                        w-9 h-9 rounded-full flex items-center justify-center text-sm shadow-sm transition-transform duration-500
@@ -75,22 +68,15 @@ export const DailyDeed: React.FC = () => {
                        </h3>
                    </div>
                </div>
-
-               {/* Testo Centrale */}
                <div className="flex-1 text-center md:text-left">
-                   {loading ? (
+                   {loading && !deed ? (
                        <div className="h-4 bg-slate-100 rounded w-2/3 animate-pulse mx-auto md:mx-0"></div>
                    ) : (
-                       <p className={`
-                           font-display text-base font-medium leading-snug
-                           ${accepted ? 'text-white' : 'text-slate-800'}
-                       `}>
+                       <p className={`font-display text-base font-medium leading-snug ${accepted ? 'text-white' : 'text-slate-800'}`}>
                            {deed?.text}
                        </p>
                    )}
                </div>
-
-               {/* Bottone Azione */}
                <div className="min-w-max pt-1 md:pt-0">
                    {accepted ? (
                        <div className="flex items-center gap-1.5 bg-white/20 px-3 py-1.5 rounded-full text-white animate-in zoom-in border border-white/20">
@@ -101,10 +87,7 @@ export const DailyDeed: React.FC = () => {
                        </div>
                    ) : (
                        <Tooltip content="Impegnati a compiere questo piccolo gesto gentile oggi" position="top">
-                            <button 
-                                onClick={handleAccept}
-                                className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-1.5 rounded-full transition shadow-sm hover:shadow hover:-translate-y-0.5"
-                            >
+                            <button onClick={handleAccept} className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-1.5 rounded-full transition shadow-sm hover:shadow hover:-translate-y-0.5">
                                 Accetto
                             </button>
                        </Tooltip>
