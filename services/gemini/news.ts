@@ -1,69 +1,80 @@
-import { getClient } from './client';
+
+import { getClient, withRetry } from './client';
 import { Article } from '../../types';
 
 /**
- * Cerca notizie positive usando il nuovo modello gemini-3-flash-preview.
+ * Recupera notizie POSITIVE e REALI tramite Google Search.
+ * Non esegue fallback creativi per garantire l'integrità dell'informazione.
  */
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
   const ai = getClient();
   
+  // Prompt rigoroso: solo fatti reali, fonti verificabili.
   const prompt = `
-    Task: Agisci come un giornalista ottimista. Cerca sul web 3 notizie RECENTI (ultima settimana) e POSITIVE riguardanti: "${promptCategory}".
+    AGISCI COME UN GIORNALISTA INVESTIGATIVO DI NOTIZIE POSITIVE.
+    CERCA SUL WEB 3 notizie REALI, RECENTI e VERIFICABILI riguardanti: "${promptCategory}".
+    REQUISITI:
+    1. Devono essere accadute negli ultimi 30 giorni.
+    2. Il contenuto deve essere oggettivamente positivo (scoperte, aiuti, progressi).
+    3. NON INVENTARE NULLA. Se non trovi notizie recenti per questa categoria, restituisci un array vuoto [].
     
-    Requisiti:
-    1. Le notizie devono essere vere e verificabili.
-    2. Il sentiment deve essere decisamente positivo (> 0.7).
-    3. Ignora notizie tristi, polemiche o di cronaca nera.
-    4. Formatta ESCLUSIVAMENTE come array JSON.
-    
-    Struttura JSON richiesta:
-    [
-      {
-        "title": "Titolo accattivante in Italiano",
-        "summary": "Riassunto breve ed ispirante in Italiano (max 20 parole)",
-        "source": "Nome Fonte",
-        "date": "YYYY-MM-DD",
-        "sentimentScore": 0.9
-      }
-    ]
+    FORMATO JSON: [{"title": "...", "summary": "...", "source": "...", "date": "YYYY-MM-DD", "sentimentScore": 0.9}]
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    console.log(`[News] Ricerca notizie REALI per: ${categoryLabel}...`);
+    
+    const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }], // Grounding attivo per notizie reali
+        tools: [{ googleSearch: {} }],
       }
-    });
-
-    let text = response.text || "[]";
-    
-    // Pulizia markdown se presente
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    const firstBracket = text.indexOf('[');
-    const lastBracket = text.lastIndexOf(']');
-    
-    if (firstBracket !== -1 && lastBracket !== -1) {
-        text = text.substring(firstBracket, lastBracket + 1);
-    }
-
-    const rawArticles = JSON.parse(text);
-
-    return rawArticles.map((a: any) => ({
-      title: a.title || "Notizia Positiva",
-      summary: a.summary || "Contenuto non disponibile",
-      source: a.source || "Web",
-      url: `https://www.google.com/search?q=${encodeURIComponent((a.title || "") + " " + (a.source || ""))}`,
-      date: a.date || new Date().toISOString().split('T')[0],
-      category: categoryLabel,
-      imageUrl: '', 
-      sentimentScore: a.sentimentScore || 0.8
     }));
 
-  } catch (error) {
-    console.error("Errore fetchPositiveNews:", error);
+    return parseArticles(response.text, categoryLabel);
+
+  } catch (error: any) {
+    const isQuotaError = error?.message?.includes('429') || error?.status === 429;
+    
+    if (isQuotaError) {
+      console.error("[News] Limite Google Search raggiunto. Impossibile cercare nuove notizie reali al momento.");
+      // Lanciamo l'errore per permettere all'hook useNewsApp di mostrare la notifica corretta
+      throw new Error("QUOTA_EXHAUSTED");
+    }
+    
+    console.error("[News] Errore durante la ricerca:", error);
     return [];
   }
+};
+
+const parseArticles = (text: string | undefined, categoryLabel: string): Article[] => {
+    let cleanText = text || "[]";
+    cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    const firstBracket = cleanText.indexOf('[');
+    const lastBracket = cleanText.lastIndexOf(']');
+    
+    if (firstBracket !== -1 && lastBracket !== -1) {
+        cleanText = cleanText.substring(firstBracket, lastBracket + 1);
+    }
+
+    try {
+        const rawArticles = JSON.parse(cleanText);
+        if (!Array.isArray(rawArticles)) return [];
+
+        return rawArticles.map((a: any) => ({
+          title: a.title || "Notizia Positiva",
+          summary: a.summary || "Dettagli non disponibili.",
+          source: a.source || "Fonte Web",
+          url: `https://www.google.com/search?q=${encodeURIComponent((a.title || "") + " " + (a.source || ""))}`,
+          date: a.date || new Date().toISOString().split('T')[0],
+          category: categoryLabel,
+          imageUrl: '', 
+          sentimentScore: a.sentimentScore || 0.85
+        }));
+    } catch (e) {
+        console.error("[News] Errore parsing JSON news:", e);
+        return [];
+    }
 };
