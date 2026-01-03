@@ -1,38 +1,86 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Restituisce l'istanza del client Gemini configurata.
+ * Coda globale per serializzare tutte le chiamate Gemini.
+ * Indispensabile per il piano gratuito che ha limiti RPM (Requests Per Minute) molto bassi,
+ * specialmente per il tool Google Search.
  */
-export const getClient = () => {
-  const apiKey = (import.meta as any).env?.VITE_API_KEY || 
-                 (typeof process !== 'undefined' ? process.env.API_KEY : undefined);
+class GeminiQueue {
+  private queue: (() => Promise<any>)[] = [];
+  private processing = false;
+  private lastRequestTime = 0;
+  private readonly MIN_INTERVAL = 8000; // 8 secondi tra richieste per evitare 429 su Search
 
-  if (!apiKey) {
-    throw new Error("Gemini API Key non trovata.");
+  async add<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          const now = Date.now();
+          const wait = Math.max(0, this.MIN_INTERVAL - (now - this.lastRequestTime));
+          if (wait > 0) {
+              console.log(`[Gemini Queue] Rispetto limite quota, attesa: ${wait}ms...`);
+              await new Promise(r => setTimeout(r, wait));
+          }
+          
+          const result = await fn();
+          this.lastRequestTime = Date.now();
+          resolve(result);
+        } catch (e) {
+          reject(e);
+        }
+      });
+      this.process();
+    });
   }
 
-  return new GoogleGenAI({ apiKey });
+  private async process() {
+    if (this.processing || this.queue.length === 0) return;
+    this.processing = true;
+    while (this.queue.length > 0) {
+      const task = this.queue.shift();
+      if (task) {
+          try {
+              await task();
+          } catch (e) {
+              // Gestito dalla promise in add()
+          }
+      }
+    }
+    this.processing = false;
+  }
+}
+
+export const geminiQueue = new GeminiQueue();
+
+export const getClient = () => {
+  return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 };
 
 /**
- * Funzione helper per eseguire chiamate API con retry automatico in caso di Rate Limit (429).
- * Implementa un backoff esponenziale più aggressivo per il piano free.
+ * Helper con retry e backoff aggressivo per errori 429.
  */
-export const withRetry = async <T>(fn: () => Promise<T>, retries = 5, delay = 5000): Promise<T> => {
-  try {
-    return await fn();
-  } catch (error: any) {
-    const isRateLimit = error?.message?.includes('429') || 
-                        error?.status === 429 || 
-                        error?.message?.toLowerCase().includes('quota') ||
-                        error?.message?.toLowerCase().includes('limit');
-    
-    if (isRateLimit && retries > 0) {
-      console.warn(`[Gemini] Limite raggiunto. Riprovo tra ${delay/1000}s... (Tentativi rimasti: ${retries})`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      // Aumentiamo il delay esponenzialmente
-      return withRetry(fn, retries - 1, delay * 1.5);
+export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 10000): Promise<T> => {
+  return geminiQueue.add(async () => {
+    let lastError: any;
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        lastError = error;
+        const isRateLimit = error?.message?.includes('429') || 
+                            error?.status === 429 || 
+                            error?.message?.toLowerCase().includes('quota');
+        
+        if (isRateLimit && i < retries) {
+          console.warn(`[Gemini Retry] Limite raggiunto. Tentativo ${i+1}/${retries}. Pausa di ${delay/1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2; 
+          continue;
+        }
+        throw error;
+      }
     }
-    throw error;
-  }
+    throw lastError;
+  });
 };
