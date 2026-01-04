@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
 import { db } from '../services/dbService';
+import { generateArticleImage } from '../services/geminiService';
 import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck } from './Icons';
 import { AudioPlayer } from './AudioPlayer';
 import { Tooltip } from './Tooltip';
@@ -26,253 +27,111 @@ const formatDate = (dateString: string) => {
 export const ArticleDetail: React.FC<ArticleDetailProps> = ({ 
   article, currentUser, isFavorite, onClose, onLoginRequest, onToggleFavorite, onUpdate 
 }) => {
-  // Stati Contatori (Globali)
   const [likeCount, setLikeCount] = useState(article.likeCount || 0);
   const [dislikeCount, setDislikeCount] = useState(article.dislikeCount || 0);
-
-  // Stati Utente (Se ha votato)
   const [userHasLiked, setUserHasLiked] = useState(false);
   const [userHasDisliked, setUserHasDisliked] = useState(false);
-  
-  // Stati Commenti
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
-  
-  // Stato per gestire quale commento è in fase di cancellazione
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [currentImageUrl, setCurrentImageUrl] = useState(article.imageUrl);
 
-  // Ref per tenere traccia dell'ID articolo (potrebbe essere creato al volo)
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
 
-  // 1. CARICAMENTO DATI INIZIALI
   useEffect(() => {
-    const loadInteractionData = async () => {
-      console.log(`[LOGICA-VOTO] Inizio caricamento dati per: ${article.title}`);
-      
-      // Se l'articolo è nuovo (non ha ID), i contatori sono 0
-      if (!articleIdRef.current) {
-          console.log(`[LOGICA-VOTO] Articolo non salvato su DB. Contatori iniziali: 0`);
-          return;
+    const loadData = async () => {
+      // Caricamento dati voti/commenti...
+      if (articleIdRef.current) {
+          const id = articleIdRef.current;
+          db.getLikeCount(id).then(setLikeCount);
+          db.getDislikeCount(id).then(setDislikeCount);
+          if (currentUser) {
+              db.hasUserLiked(id, currentUser.id).then(setUserHasLiked);
+              db.hasUserDisliked(id, currentUser.id).then(setUserHasDisliked);
+          }
+          loadComments(id);
       }
 
-      const id = articleIdRef.current;
-      
-      try {
-        // A) Carica Contatori Globali
-        const [lCount, dCount] = await Promise.all([
-           db.getLikeCount(id),
-           db.getDislikeCount(id)
-        ]);
-        
-        console.log(`[LOGICA-VOTO] Contatori dal DB -> Like: ${lCount}, Dislike: ${dCount}`);
-        setLikeCount(lCount);
-        setDislikeCount(dCount);
-        
-        // B) Carica Stato Utente (Solo se loggato)
-        if (currentUser) {
-          const [liked, disliked] = await Promise.all([
-            db.hasUserLiked(id, currentUser.id),
-            db.hasUserDisliked(id, currentUser.id)
-          ]);
-          console.log(`[LOGICA-VOTO] Stato Utente -> Ha messo Like: ${liked}, Ha messo Dislike: ${disliked}`);
-          setUserHasLiked(liked);
-          setUserHasDisliked(disliked);
-        }
-
-        // C) Carica Commenti
-        loadComments(id);
-
-      } catch (error) {
-        console.error("[LOGICA-VOTO] Errore caricamento:", error);
+      // Generazione immagine on-demand se manca
+      if (!article.imageUrl || article.imageUrl.includes('picsum.photos')) {
+          try {
+              console.log("[Detail] Generazione immagine on-demand...");
+              const img = await generateArticleImage(article.title);
+              if (img) {
+                  setCurrentImageUrl(img);
+                  db.updateArticleImage(article.url, img).catch(() => {});
+                  if (onUpdate) onUpdate({ ...article, imageUrl: img });
+              }
+          } catch(e) {}
       }
     };
-
-    loadInteractionData();
-  }, [article.id, currentUser]); 
+    loadData();
+  }, [article.id, currentUser]);
 
   const loadComments = async (artId: string) => {
       setLoadingComments(true);
       try {
           const list = await db.getComments(artId);
           setComments(list);
-      } catch (e) {
-          console.error("Errore loading commenti", e);
-      } finally {
+      } catch (e) {} finally {
           setLoadingComments(false);
       }
   };
 
-  // Helper: Assicura che l'articolo abbia un ID nel DB
   const ensureArticleSaved = async (): Promise<string | null> => {
       if (articleIdRef.current) return articleIdRef.current;
-
-      console.log("[LOGICA-VOTO] Salvataggio preventivo articolo per ottenere ID...");
       try {
           const saved = await db.saveArticles(article.category || 'Generale', [article]);
           if (saved && saved.length > 0) {
-              const newId = saved[0].id;
-              articleIdRef.current = newId; 
-              console.log(`[LOGICA-VOTO] Articolo salvato. Nuovo ID: ${newId}`);
-              return newId || null;
+              articleIdRef.current = saved[0].id;
+              return saved[0].id || null;
           }
-      } catch (e) {
-          console.error("[LOGICA-VOTO] Errore salvataggio:", e);
-      }
+      } catch (e) {}
       return null;
   };
 
-  // Helper per aggiornare il padre (ArticleList)
-  const updateParent = (id: string, lCount: number, dCount: number) => {
-      if (onUpdate) {
-          onUpdate({
-              ...article,
-              id: id,
-              likeCount: lCount,
-              dislikeCount: dCount
-          });
-      }
-  };
-
-  // --- GESTIONE LIKE ---
   const handleLike = async () => {
-      if (!currentUser) return;
-
-      if (loadingRef.current) return;
+      if (!currentUser || loadingRef.current) return;
       loadingRef.current = true;
-
       const wasLiked = userHasLiked;
-      const wasDisliked = userHasDisliked;
-      const newLikedState = !wasLiked;
-
-      // 1. Aggiornamento Ottimistico UI Locale
-      setUserHasLiked(newLikedState);
-      setLikeCount(prev => newLikedState ? prev + 1 : Math.max(0, prev - 1));
-      if (newLikedState && wasDisliked) {
-          setUserHasDisliked(false);
-          setDislikeCount(prev => Math.max(0, prev - 1));
-      }
-
-      // 2. Operazione DB
+      setUserHasLiked(!wasLiked);
+      setLikeCount(p => !wasLiked ? p + 1 : Math.max(0, p - 1));
       try {
           const targetId = await ensureArticleSaved();
-          if (!targetId) throw new Error("Impossibile ottenere ID articolo");
-
-          const resultIsLiked = await db.toggleLike(targetId, currentUser.id);
-          
-          const [realLikeCount, realDislikeCount] = await Promise.all([
-             db.getLikeCount(targetId),
-             db.getDislikeCount(targetId)
-          ]);
-
-          setLikeCount(realLikeCount);
-          setDislikeCount(realDislikeCount);
-          setUserHasLiked(resultIsLiked);
-          if (resultIsLiked) setUserHasDisliked(false);
-
-          updateParent(targetId, realLikeCount, realDislikeCount);
-
-      } catch (error) {
-          console.error("[LOGICA-VOTO] ERRORE operazione Like:", error);
+          if (targetId) await db.toggleLike(targetId, currentUser.id);
+      } catch (e) {
           setUserHasLiked(wasLiked);
-          setUserHasDisliked(wasDisliked);
-          setLikeCount(prev => wasLiked ? prev + 1 : prev - 1);
-          if (newLikedState && wasDisliked) setDislikeCount(prev => prev + 1);
-      } finally {
-          loadingRef.current = false;
-      }
+      } finally { loadingRef.current = false; }
   };
 
-  // --- GESTIONE DISLIKE ---
   const handleDislike = async () => {
-      if (!currentUser) return;
-
-      if (loadingRef.current) return;
+      if (!currentUser || loadingRef.current) return;
       loadingRef.current = true;
-
       const wasDisliked = userHasDisliked;
-      const wasLiked = userHasLiked;
-      const newDislikedState = !wasDisliked;
-      
-      setUserHasDisliked(newDislikedState);
-      setDislikeCount(prev => newDislikedState ? prev + 1 : Math.max(0, prev - 1));
-      if (newDislikedState && wasLiked) {
-          setUserHasLiked(false);
-          setLikeCount(prev => Math.max(0, prev - 1));
-      }
-
+      setUserHasDisliked(!wasDisliked);
+      setDislikeCount(p => !wasDisliked ? p + 1 : Math.max(0, p - 1));
       try {
           const targetId = await ensureArticleSaved();
-          if (!targetId) throw new Error("Impossibile ottenere ID articolo");
-
-          const resultIsDisliked = await db.toggleDislike(targetId, currentUser.id);
-
-          const [realLikeCount, realDislikeCount] = await Promise.all([
-             db.getLikeCount(targetId),
-             db.getDislikeCount(targetId)
-          ]);
-
-          setLikeCount(realLikeCount);
-          setDislikeCount(realDislikeCount);
-          setUserHasDisliked(resultIsDisliked);
-          if (resultIsDisliked) setUserHasLiked(false);
-
-          updateParent(targetId, realLikeCount, realDislikeCount);
-
-      } catch (error) {
-          console.error("[LOGICA-VOTO] ERRORE operazione Dislike:", error);
+          if (targetId) await db.toggleDislike(targetId, currentUser.id);
+      } catch (e) {
           setUserHasDisliked(wasDisliked);
-          setUserHasLiked(wasLiked);
-          setDislikeCount(prev => wasDisliked ? prev + 1 : prev - 1);
-          if (newDislikedState && wasLiked) setLikeCount(prev => prev + 1);
-      } finally {
-          loadingRef.current = false;
-      }
+      } finally { loadingRef.current = false; }
   };
 
-  // --- GESTIONE COMMENTI ---
   const handlePostComment = async () => {
-      if (!newComment.trim()) return;
-      if (!currentUser) {
-          onLoginRequest();
-          return;
-      }
+      if (!newComment.trim() || !currentUser) return;
       setSubmittingComment(true);
       try {
           const targetId = await ensureArticleSaved();
-          if (!targetId) throw new Error("ID mancante");
-
-          const addedComment = await db.addComment(targetId, currentUser, newComment.trim());
-          setComments([addedComment, ...comments]);
-          setNewComment('');
-      } catch (e) {
-          console.error("Errore invio commento", e);
-          alert("Impossibile inviare il commento. Riprova.");
-      } finally {
-          setSubmittingComment(false);
-      }
-  };
-
-  // Cancellazione Effettiva (dopo conferma)
-  const performDeleteComment = async (commentId: string) => {
-      if (!currentUser) return;
-      
-      // Resetta stato UI
-      setDeletingCommentId(null);
-      
-      // UI Optimistic update
-      const prevComments = [...comments];
-      setComments(prev => prev.filter(c => c.id !== commentId));
-
-      try {
-          await db.deleteComment(commentId, currentUser.id);
-      } catch (e) {
-          console.error("Errore cancellazione", e);
-          setComments(prevComments); // Rollback
-          alert("Errore durante la cancellazione.");
-      }
+          if (targetId) {
+              const added = await db.addComment(targetId, currentUser, newComment.trim());
+              setComments([added, ...comments]);
+              setNewComment('');
+          }
+      } catch (e) {} finally { setSubmittingComment(false); }
   };
 
   return (
@@ -282,11 +141,10 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
             <button onClick={onClose} className="bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition"><IconX /></button>
         </div>
         
-        {/* Immagine Header */}
         <div className="relative h-64 md:h-96 w-full bg-slate-200">
-          <img src={article.imageUrl || `https://picsum.photos/seed/${article.title}/600/400`} className="w-full h-full object-cover"/>
+          <img src={currentImageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} className="w-full h-full object-cover"/>
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-6 pt-24">
-            <h1 className="text-2xl md:text-4xl font-bold text-white">{article.title}</h1>
+            <h1 className="text-2xl md:text-4xl font-bold text-white font-display">{article.title}</h1>
           </div>
         </div>
 
@@ -305,7 +163,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                 canPlay={!!currentUser}
             />
 
-            <p className="text-lg text-slate-700 leading-relaxed mb-6">{article.summary}</p>
+            <p className="text-lg text-slate-700 leading-relaxed mb-6 font-body">{article.summary}</p>
             
             <div className="mb-6">
                 <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-joy-600 font-bold hover:text-joy-700 hover:underline transition-colors">
@@ -313,170 +171,39 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                 </a>
             </div>
 
-            {/* SEZIONE INTERAZIONE (Like/Dislike/Fav) */}
             <div className="flex flex-wrap items-center gap-4 border-t border-b py-6 mb-8">
-              
-              <Tooltip content={currentUser ? "Mi piace" : "Accedi per votare"}>
-                  <button 
-                    onClick={handleLike}
-                    className={`
-                        flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-200 transform border
-                        ${currentUser ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}
-                        ${userHasLiked 
-                            ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm ring-1 ring-emerald-100' 
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600'
-                        }
-                    `}
-                  >
-                      <IconThumbUp filled={userHasLiked} className={userHasLiked ? "scale-110" : ""} />
-                      <span className="font-bold">{likeCount}</span>
-                  </button>
-              </Tooltip>
-
-              <Tooltip content={currentUser ? "Non mi piace" : "Accedi per votare"}>
-                  <button 
-                    onClick={handleDislike}
-                    className={`
-                        flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-200 transform border
-                        ${currentUser ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}
-                        ${userHasDisliked 
-                            ? 'bg-orange-50 text-orange-600 border-orange-200 shadow-sm ring-1 ring-orange-100' 
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-orange-50 hover:text-orange-600'
-                        }
-                    `}
-                  >
-                      <IconThumbDown filled={userHasDisliked} className={userHasDisliked ? "scale-110" : ""} />
-                      <span className="font-bold">{dislikeCount}</span>
-                  </button>
-              </Tooltip>
-              
-              <div className="w-px h-8 bg-slate-200 mx-2"></div>
-
-              <Tooltip content={currentUser ? (isFavorite ? "Rimuovi dai preferiti" : "Salva nei preferiti") : "Accedi per salvare nei preferiti"}>
-                  <button 
-                    onClick={() => currentUser ? onToggleFavorite(article) : onLoginRequest()} 
-                    className={`flex items-center space-x-2 px-4 py-2 rounded-full transition transform active:scale-95 border ${
-                        isFavorite 
-                            ? 'bg-amber-50 text-amber-500 border-amber-200' 
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-500'
-                    }`}
-                  >
-                      <IconHeart filled={isFavorite} />
-                      <span>{isFavorite ? 'Salvato' : 'Salva'}</span>
-                  </button>
-              </Tooltip>
+              <button onClick={handleLike} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${userHasLiked ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                  <IconThumbUp filled={userHasLiked} />
+                  <span className="font-bold">{likeCount}</span>
+              </button>
+              <button onClick={handleDislike} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${userHasDisliked ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-white border-slate-200'}`}>
+                  <IconThumbDown filled={userHasDisliked} />
+                  <span className="font-bold">{dislikeCount}</span>
+              </button>
+              <button onClick={() => onToggleFavorite(article)} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${isFavorite ? 'bg-amber-50 text-amber-500 border-amber-200' : 'bg-white border-slate-200'}`}>
+                  <IconHeart filled={isFavorite} />
+                  <span>{isFavorite ? 'Salvato' : 'Salva'}</span>
+              </button>
             </div>
 
-            {/* SEZIONE COMMENTI */}
-            <div>
-               <h3 className="text-xl font-display font-bold text-slate-800 mb-6 flex items-center gap-2">
-                   <IconMessage className="w-5 h-5 text-joy-500" />
-                   Commenti
-               </h3>
-               
-               {/* Area Input */}
-               <div className="flex gap-4 mb-8">
-                    <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden">
-                        {currentUser ? (
-                            <img src={currentUser.avatar} alt="Me" className="w-full h-full object-cover" />
-                        ) : (
-                             <div className="w-full h-full flex items-center justify-center text-slate-400 bg-slate-100">?</div>
-                        )}
+            <div className="space-y-6">
+                <h3 className="text-xl font-display font-bold text-slate-800 mb-4">Commenti</h3>
+                {currentUser && (
+                    <div className="flex gap-2">
+                        <textarea value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-3 rounded-xl bg-slate-50" placeholder="Lascia un commento..." />
+                        <button onClick={handlePostComment} disabled={submittingComment} className="bg-joy-500 text-white px-4 rounded-xl font-bold">Invia</button>
                     </div>
-                    <div className="flex-1 relative">
-                        {currentUser ? (
-                            <>
-                                <textarea
-                                    value={newComment}
-                                    onChange={(e) => setNewComment(e.target.value)}
-                                    placeholder="Condividi un pensiero positivo..."
-                                    className="w-full border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-joy-400 focus:border-joy-400 outline-none resize-y min-h-[80px] bg-slate-50 focus:bg-white transition"
-                                    disabled={submittingComment}
-                                />
-                                <div className="flex justify-end mt-2">
-                                    <button 
-                                        onClick={handlePostComment}
-                                        disabled={!newComment.trim() || submittingComment}
-                                        className="bg-joy-500 text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-joy-600 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
-                                    >
-                                        {submittingComment ? 'Invio...' : 'Invia'}
-                                    </button>
-                                </div>
-                            </>
-                        ) : (
-                            <div 
-                                onClick={onLoginRequest}
-                                className="w-full border border-slate-200 border-dashed rounded-xl p-4 bg-slate-50 text-slate-500 cursor-pointer hover:bg-slate-100 hover:text-joy-600 transition flex items-center justify-center gap-2"
-                            >
-                                <span>Effettua l'accesso per commentare</span>
-                            </div>
-                        )}
+                )}
+                {comments.map(c => (
+                    <div key={c.id} className="p-4 bg-slate-50 rounded-xl">
+                        <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
+                            <span>{c.username}</span>
+                            <span>{new Date(c.timestamp).toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-sm text-slate-700">{c.text}</p>
                     </div>
-               </div>
-
-               {/* Lista Commenti */}
-               <div className="space-y-6">
-                    {loadingComments ? (
-                        <p className="text-center text-slate-400 py-4 italic">Caricamento commenti...</p>
-                    ) : comments.length === 0 ? (
-                        <p className="text-center text-slate-400 py-4 border border-dashed rounded-xl">Nessun commento ancora. Sii il primo!</p>
-                    ) : (
-                        comments.map(comment => (
-                            <div key={comment.id} className="flex gap-4 animate-in fade-in slide-in-from-bottom-2">
-                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex-shrink-0 overflow-hidden border border-indigo-100">
-                                     {/* Avatar generato dal nome se manca l'immagine specifica nel DB dei commenti, ma qui usiamo dicebear se non salvata */}
-                                    <img 
-                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.userId}`} 
-                                        alt={comment.username} 
-                                        className="w-full h-full object-cover"
-                                    />
-                                </div>
-                                <div className="flex-1 bg-white p-4 rounded-xl rounded-tl-none border border-slate-100 shadow-sm relative group">
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className="font-bold text-slate-800 text-sm">{comment.username}</span>
-                                        <span className="text-xs text-slate-400">
-                                            {new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(comment.timestamp))}
-                                        </span>
-                                    </div>
-                                    <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-line">{comment.text}</p>
-                                    
-                                    {currentUser && currentUser.id === comment.userId && (
-                                        <div className="absolute bottom-3 right-3">
-                                            {deletingCommentId === comment.id ? (
-                                                <div className="flex items-center gap-2 bg-white shadow-sm border border-slate-100 rounded-full px-2 py-1 animate-in fade-in slide-in-from-right-2">
-                                                    <button 
-                                                        onClick={() => performDeleteComment(comment.id)}
-                                                        className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition"
-                                                        title="Conferma eliminazione"
-                                                    >
-                                                        <IconCheck className="w-4 h-4" />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => setDeletingCommentId(null)}
-                                                        className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-full transition"
-                                                        title="Annulla"
-                                                    >
-                                                        <IconX className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <button 
-                                                    onClick={() => setDeletingCommentId(comment.id)}
-                                                    className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1"
-                                                    title="Elimina commento"
-                                                >
-                                                    <IconTrash className="w-4 h-4" />
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))
-                    )}
-               </div>
+                ))}
             </div>
-
           </div>
         </div>
       </div>
