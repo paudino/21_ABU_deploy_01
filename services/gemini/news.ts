@@ -17,36 +17,43 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
 
   try {
     const ai = getClient();
-    const shuffled = [...rawNews].sort(() => 0.5 - Math.random());
-    const newsListString = shuffled.slice(0, 10).map((n, i) => 
-        `[ID:${i}] Fonte: ${n.link.includes('.it') ? 'Italiana' : 'Internazionale'}\nTitolo: ${n.title}\nDescrizione: ${n.description}`
+    // Priorità ai feed italiani nel campionamento per Gemini
+    const sortedForAi = [...rawNews].sort((a, b) => {
+        const isAIt = a.link.includes('.it') || a.link.includes('italiachecambia') || a.link.includes('avvenire');
+        const isBIt = b.link.includes('.it') || b.link.includes('italiachecambia') || b.link.includes('avvenire');
+        return isAIt === isBIt ? 0 : isAIt ? -1 : 1;
+    });
+
+    const newsListString = sortedForAi.slice(0, 10).map((n, i) => 
+        `[ID:${i}] Fonte: ${n.link}\nTitolo: ${n.title}\nDescrizione: ${n.description}`
     ).join('\n---\n');
 
     const prompt = `
       Sei un redattore esperto del "Buon Umore". 
-      Analizza queste notizie (alcune sono in Italiano, altre in Inglese).
+      Analizza queste notizie. Molte sono in Italiano, alcune in Inglese.
       
       COMPITI:
       1. Seleziona le 3 notizie più positive, costruttive o di speranza.
-      2. TRADUCI OBBLIGATORIAMENTE IN ITALIANO perfetto ed elegante ogni notizia selezionata.
-      3. Scrivi un riassunto (summary) di almeno 3-4 frasi che spieghi perché la notizia è bella.
+      2. TRADUCI OBBLIGATORIAMENTE IN ITALIANO perfetto ogni notizia selezionata (specialmente se l'originale è in inglese).
+      3. Scrivi un riassunto (summary) appassionante in Italiano.
       
       NOTIZIE DA ELABORARE:
       ${newsListString}
       
       RESTITUISCI SOLO UN ARRAY JSON:
-      [{"id_originale": 0, "title": "Titolo in Italiano", "summary": "Riassunto positivo in Italiano", "source": "Nome della testata", "sentimentScore": 0.95}]
+      [{"id_originale": 0, "title": "Titolo in Italiano", "summary": "Riassunto in Italiano", "source": "Nome del Sito", "sentimentScore": 0.95}]
     `;
 
     console.log(`%c[Source: GEMINI-AI] Elaborazione e traduzione in corso...`, "color: #8b5cf6; font-weight: bold");
     
+    // Aumentato il delay di retry per dare respiro alla quota API
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
-    }), 1, 10000); 
+    }), 1, 12000); 
 
     const text = response.text || "[]";
-    const articles = parseArticles(text, shuffled, categoryLabel);
+    const articles = parseArticles(text, sortedForAi, categoryLabel);
     
     if (articles.length > 0) {
         return articles;
@@ -54,13 +61,23 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
     throw new Error("Dati non validi dall'IA");
 
   } catch (error: any) {
-    console.warn(`%c[Source: Fallback] IA occupata. Mostro notizie originali.`, "color: #f59e0b");
+    console.warn(`%c[Source: Fallback] IA non disponibile. Filtro notizie italiane.`, "color: #f59e0b");
     
-    // Fallback: se l'IA fallisce, almeno ora molti feed saranno già in italiano grazie a newsFetcher.ts
-    return rawNews.slice(0, 3).map(n => ({
+    // FALLBACK INTELLIGENTE: Se l'IA fallisce, prendiamo solo le prime 3 notizie 
+    // che provengono da fonti italiane (per evitare l'inglese in homepage)
+    const italianOnly = rawNews.filter(n => 
+        n.link.includes('.it') || 
+        n.link.includes('italiachecambia') || 
+        n.link.includes('avvenire') ||
+        n.link.includes('greenme')
+    );
+
+    const sourceNews = italianOnly.length > 0 ? italianOnly : rawNews;
+
+    return sourceNews.slice(0, 3).map(n => ({
         title: n.title,
         summary: n.description,
-        source: n.link.includes('italiachecambia') ? "Italia Che Cambia" : n.link.includes('greenme') ? "GreenMe" : "Fonte News",
+        source: extractSourceName(n.link),
         url: n.link,
         date: new Date(n.pubDate).toISOString().split('T')[0],
         category: categoryLabel,
@@ -68,6 +85,18 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
         sentimentScore: 0.8
     }));
   }
+};
+
+const extractSourceName = (url: string): string => {
+    if (url.includes('italiachecambia')) return "Italia Che Cambia";
+    if (url.includes('greenme')) return "GreenMe";
+    if (url.includes('avvenire')) return "Avvenire (Buone Notizie)";
+    if (url.includes('ansa.it')) return "ANSA";
+    if (url.includes('hdblog')) return "HDblog";
+    if (url.includes('wired.it')) return "Wired IT";
+    if (url.includes('punto-informatico')) return "Punto Informatico";
+    if (url.includes('lifegate')) return "LifeGate";
+    return "Fonte Notizie";
 };
 
 const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: string): Article[] => {
@@ -80,7 +109,7 @@ const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: stri
             return {
                 title: choice.title || original.title,
                 summary: choice.summary || original.description,
-                source: choice.source || (original.link.includes('.it') ? "Fonte Italiana" : "Fonte Estera"),
+                source: choice.source || extractSourceName(original.link),
                 url: original.link,
                 date: new Date(original.pubDate).toISOString().split('T')[0],
                 category: categoryLabel,
