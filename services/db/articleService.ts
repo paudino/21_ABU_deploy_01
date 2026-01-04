@@ -1,5 +1,4 @@
 
-
 import { supabase } from '../supabaseClient';
 import { Article } from '../../types';
 
@@ -8,18 +7,13 @@ export const cleanupOldArticles = async (): Promise<void> => {
 };
 
 export const getCachedArticles = async (categoryLabel: string): Promise<Article[]> => {
-    // Pulizia e preparazione termine ricerca. 
-    // Usiamo %...% per trovare "Tecnologia" anche se c'è " Tecnologia " o simili.
     const cleanLabel = categoryLabel ? categoryLabel.trim() : '';
-    const searchTerm = (cleanLabel && cleanLabel !== 'Generale') 
-        ? `%${cleanLabel}%` 
-        : '%';
+    // Cerchiamo articoli che corrispondano esattamente o quasi alla categoria
+    const searchTerm = cleanLabel;
     
-    console.log(`[DB] getCachedArticles: Cerco articoli per "${categoryLabel}" (Termine: ${searchTerm})`);
+    console.log(`[DB] getCachedArticles: Cerco articoli per "${categoryLabel}"`);
 
     try {
-        // TENTATIVO 1: Query Arricchita (Articoli + Contatori)
-        // Richiede che le tabelle 'likes' e 'dislikes' esistano e abbiano le foreign key corrette.
         let { data, error } = await supabase
           .from('articles')
           .select('*, likes(count), dislikes(count)')
@@ -27,14 +21,11 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
           .order('created_at', { ascending: false })
           .limit(50);
 
-        // FALLBACK: Se la query complessa fallisce (es. tabelle mancanti o errore fetch), 
-        // proviamo una query semplice per non bloccare l'applicazione.
         if (error) {
-            console.warn("[DB] Query completa fallita (probabile schema mancante), attivo fallback semplice...", error.message);
-            
+            console.warn("[DB] Query completa fallita, provo fallback semplice...", error.message);
             const fallback = await supabase
                 .from('articles')
-                .select('*') // Nessuna relazione, solo dati grezzi
+                .select('*')
                 .ilike('category', searchTerm)
                 .order('created_at', { ascending: false })
                 .limit(50);
@@ -44,12 +35,10 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
         }
 
         if (error) {
-            console.error("[DB] Errore Query Definitivo:", error.message);
+            console.error("[DB] Errore Query:", error.message);
             return [];
         }
         
-        console.log(`[DB] Risultati trovati: ${data?.length || 0}`);
-
         return (data || []).map((a: any) => ({
             id: a.id,
             title: a.title,
@@ -61,7 +50,6 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
             imageUrl: a.image_url || '',
             audioBase64: a.audio_base64 || '',
             sentimentScore: a.sentiment_score,
-            // Mapping sicuro: se siamo in fallback, likes/dislikes saranno undefined e useremo 0
             likeCount: a.likes?.[0]?.count || 0,
             dislikeCount: a.dislikes?.[0]?.count || 0
         }));
@@ -81,7 +69,6 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
     for (const article of articles) {
         if (!article.url) continue;
 
-        // Usa la categoria passata come argomento se l'articolo non ne ha una specifica
         const finalCategory = article.category || cleanCategory;
 
         const row = {
@@ -102,10 +89,6 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                 .upsert(row, { onConflict: 'url' })
                 .select()
                 .single();
-
-            if (error && error.code !== '23505') {
-                 console.warn("[DB] Errore Upsert:", error.message);
-            }
 
             if (data) {
                 savedArticles.push({
