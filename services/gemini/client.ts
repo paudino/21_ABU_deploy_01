@@ -5,8 +5,7 @@ class GeminiQueue {
   private queue: (() => Promise<any>)[] = [];
   private processing = false;
   private lastRequestTime = 0;
-  // Aumentato a 10 secondi per essere ultra-conservativi con la quota gratuita
-  private readonly MIN_INTERVAL = 10000; 
+  private readonly MIN_INTERVAL = 5000; // Ridotto a 5s per bilanciare velocità e quota
 
   async add<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -15,7 +14,7 @@ class GeminiQueue {
           const now = Date.now();
           const wait = Math.max(0, this.MIN_INTERVAL - (now - this.lastRequestTime));
           if (wait > 0) {
-              console.log(`[GeminiQueue] Attesa di sicurezza: ${wait}ms...`);
+              console.log(`%c[GeminiQueue] Attesa anti-rate-limit: ${wait}ms...`, "color: #94a3b8; font-style: italic");
               await new Promise(r => setTimeout(r, wait));
           }
           
@@ -37,7 +36,7 @@ class GeminiQueue {
       const task = this.queue.shift();
       if (task) {
           try { await task(); } catch (e) {
-              console.warn("[GeminiQueue] Errore durante l'esecuzione del task:", e);
+              console.warn("[GeminiQueue] Errore task:", e);
           }
       }
     }
@@ -48,13 +47,17 @@ class GeminiQueue {
 export const geminiQueue = new GeminiQueue();
 
 export const getClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey || apiKey === 'undefined') {
+      throw new Error("API_KEY mancante! Configura la variabile d'ambiente su Vercel.");
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 /**
  * Funzione con retry esponenziale e gestione specifica del 429.
  */
-export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 12000): Promise<T> => {
+export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 8000): Promise<T> => {
   return geminiQueue.add(async () => {
     let lastError: any;
     for (let i = 0; i <= retries; i++) {
@@ -66,7 +69,7 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 12
         const isRateLimit = errorMsg.includes('429') || error?.status === 429 || errorMsg.includes('RESOURCE_EXHAUSTED');
         
         if (isRateLimit) {
-            console.warn(`[Gemini] Quota esaurita (Tentativo ${i+1}/${retries+1})...`);
+            console.warn(`%c[Gemini] Limite raggiunto (Tentativo ${i+1}/${retries+1}). Riprovo tra ${delay}ms...`, "color: #f59e0b");
             if (i < retries) {
               await new Promise(r => setTimeout(r, delay));
               delay *= 2; 
