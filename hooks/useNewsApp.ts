@@ -53,7 +53,7 @@ export const useNewsApp = () => {
     return () => { subscription.unsubscribe(); };
   }, []);
 
-  // Sync categorie dal DB
+  // Sync categorie dal DB e caricamento iniziale
   useEffect(() => {
       const refreshCategories = async () => {
           try {
@@ -69,9 +69,16 @@ export const useNewsApp = () => {
                   const firstCat = dbCategories[0];
                   setActiveCategoryId(firstCat.id);
                   activeCategoryIdRef.current = firstCat.id;
+                  
+                  // Trigger caricamento iniziale notizie
+                  if (!initialLoadDone.current) {
+                      initialLoadDone.current = true;
+                      fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
+                  }
               }
           } catch (e) {
               console.error("Errore refresh categorie:", e);
+              setLoading(false);
           }
       };
       refreshCategories();
@@ -89,12 +96,14 @@ export const useNewsApp = () => {
             console.error("Errore caricamento preferiti:", err);
             setLoading(false);
         });
-    } else if (!showFavoritesOnly && activeCategoryId) {
-        // Quando torniamo dalla vista preferiti, ricarichiamo la categoria attiva
-        const cat = categories.find(c => c.id === activeCategoryId);
-        if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, false);
+    } else if (!showFavoritesOnly && activeCategoryId && initialLoadDone.current) {
+        // Se non siamo nei preferiti, assicuriamoci che ci siano notizie caricate
+        if (articles.length === 0) {
+            const cat = categories.find(c => c.id === activeCategoryId);
+            if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, false);
+        }
     }
-  }, [showFavoritesOnly, currentUser]);
+  }, [showFavoritesOnly, currentUser, activeCategoryId]);
 
   // Caricamento Notizie
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
@@ -106,9 +115,12 @@ export const useNewsApp = () => {
     setNotification(null);
     
     try {
+        console.log(`[Fetch] Avvio recupero per "${catLabel}" (Force AI: ${forceAi})`);
+        
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel);
             if (cached && cached.length > 0) {
+                console.log(`[Fetch] Trovati ${cached.length} articoli in cache.`);
                 setArticles(cached); 
                 setLoading(false); 
                 isFetchingRef.current = false;
