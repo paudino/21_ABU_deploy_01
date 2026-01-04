@@ -1,98 +1,117 @@
 
-import { getClient, withRetry } from './client';
-import { Article } from '../../types';
-import { fetchRawNewsFromRSS, RawNewsItem } from '../newsFetcher';
-
 /**
- * Recupera notizie POSITIVE e REALI.
- * Implementa una logica a 2 livelli: 
- * 1. Recupero RSS (Dati Grezzi)
- * 2. Elaborazione AI (Traduzione e Sentiment)
- * 3. Fallback a RSS Originale in caso di errore AI.
+ * Servizio per il recupero di notizie REALI da fonti giornalistiche esterne.
+ * Utilizza feed RSS pubblici (Italiani e Internazionali) e una rotazione di proxy CORS.
  */
-export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
-  console.log(`%c[Source: WEB-RSS] Recupero feed per "${categoryLabel}"...`, "color: #3b82f6; font-weight: bold");
-  
-  const rawNews = await fetchRawNewsFromRSS(categoryLabel);
-  
-  if (!rawNews || rawNews.length === 0) {
-    console.error(`%c[Source: WEB-RSS] Nessuna notizia trovata nei feed per: ${categoryLabel}`, "color: #ef4444");
-    return [];
-  }
 
-  try {
-    const ai = getClient();
-    // Mescoliamo per non avere sempre gli stessi risultati in cima
-    const shuffled = [...rawNews].sort(() => 0.5 - Math.random());
-    const newsListString = shuffled.slice(0, 8).map((n, i) => 
-        `[ID:${i}] Title: ${n.title}\nDesc: ${n.description}`
-    ).join('\n---\n');
-
-    const prompt = `
-      Analizza queste notizie e seleziona le 3 più positive e ispiranti.
-      Traducile fedelmente in ITALIANO.
-      
-      NOTIZIE:
-      ${newsListString}
-      
-      RESTITUISCI SOLO JSON:
-      [{"id_originale": 0, "title": "...", "summary": "...", "source": "...", "sentimentScore": 0.9}]
-    `;
-
-    console.log(`%c[Source: GEMINI-AI] Invio a elaborazione AI...`, "color: #8b5cf6; font-weight: bold");
-    
-    const response = await withRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-    }), 1, 8000); 
-
-    const text = response.text || "[]";
-    const articles = parseArticles(text, shuffled, categoryLabel);
-    
-    if (articles.length > 0) {
-        console.log(`%c[Source: GEMINI-AI] Successo.`, "color: #10b981; font-weight: bold");
-        return articles;
-    }
-    throw new Error("Risposta AI vuota");
-
-  } catch (error: any) {
-    console.warn(`%c[Source: RSS-Fallback] AI non disponibile (${error.message}). Carico dati originali.`, "color: #f59e0b; font-weight: bold");
-    
-    // FALLBACK: Restituiamo le notizie originali (titoli in inglese ma notizie REALI e NUOVE)
-    // Questo previene che l'hook ricarichi la vecchia cache dal DB.
-    return rawNews.slice(0, 4).map(n => ({
-        title: n.title,
-        summary: n.description,
-        source: "Global Good News Feed",
-        url: n.link,
-        date: new Date(n.pubDate).toISOString().split('T')[0],
-        category: categoryLabel,
-        imageUrl: '',
-        sentimentScore: 0.8
-    }));
-  }
+const RSS_FEEDS: Record<string, string[]> = {
+  'Generale': [
+    'https://www.italiachecambia.org/feed/', 
+    'https://www.greenme.it/feed/',
+    'https://www.goodnewsnetwork.org/category/news/feed/'
+  ],
+  'Tecnologia': [
+    'https://www.wired.it/rss/feed/',
+    'https://phys.org/rss-feed/technology-news/'
+  ],
+  'Medicina': [
+    'https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml',
+    'https://www.goodnewsnetwork.org/category/news/health/feed/'
+  ],
+  'Ambiente': [
+    'https://www.greenme.it/category/ambiente/feed/',
+    'https://www.italiachecambia.org/categoria/ecologia/feed/',
+    'https://www.goodnewsnetwork.org/category/news/earth/feed/'
+  ],
+  'Società': [
+    'https://www.italiachecambia.org/categoria/societa/feed/',
+    'https://www.greenme.it/category/vivere/feed/'
+  ],
+  'Politica': [
+    'https://www.italiachecambia.org/categoria/politica/feed/',
+    'https://www.goodnewsnetwork.org/category/news/world/feed/'
+  ]
 };
 
-const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: string): Article[] => {
-    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    try {
-        const aiChoices = JSON.parse(cleanText);
-        if (!Array.isArray(aiChoices)) return [];
-        return aiChoices.map((choice: any) => {
-            const original = rawNews[choice.id_originale] || rawNews[0];
-            return {
-                title: choice.title || original.title,
-                summary: choice.summary || original.description,
-                source: choice.source || "Fonte News",
-                url: original.link,
-                date: new Date(original.pubDate).toISOString().split('T')[0],
-                category: categoryLabel,
-                imageUrl: '', 
-                sentimentScore: choice.sentimentScore || 0.85
-            };
-        });
-    } catch (e) {
-        console.error("[Parser] Errore JSON Gemini:", e);
-        return [];
-    }
+export interface RawNewsItem {
+  title: string;
+  link: string;
+  description: string;
+  pubDate: string;
+}
+
+/**
+ * Proxy disponibili per bypassare i blocchi CORS del browser.
+ */
+const PROXY_STRATEGIES = [
+  async (url: string) => {
+    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error("Corsproxy fail");
+    return await res.text();
+  },
+  async (url: string) => {
+    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error("Codetabs fail");
+    return await res.text();
+  },
+  async (url: string) => {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error("AllOrigins fail");
+    const data = await res.json();
+    return data.contents;
+  }
+];
+
+/**
+ * Recupera notizie grezze provando diverse strategie di proxy in sequenza.
+ */
+export const fetchRawNewsFromRSS = async (category: string): Promise<RawNewsItem[]> => {
+  const urls = RSS_FEEDS[category] || RSS_FEEDS['Generale'];
+  
+  // Proviamo prima un feed italiano se disponibile (i primi della lista sono solitamente IT)
+  const sortedUrls = [...urls].sort((a, b) => {
+      const isAIt = a.includes('.it') || a.includes('italiachecambia');
+      const isBIt = b.includes('.it') || b.includes('italiachecambia');
+      return isAIt === isBIt ? 0 : isAIt ? -1 : 1;
+  });
+
+  for (const baseUrl of sortedUrls) {
+      const targetUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+      console.log(`%c[RSS-FETCH] Tentativo su: ${targetUrl}`, "color: #94a3b8");
+
+      for (let i = 0; i < PROXY_STRATEGIES.length; i++) {
+        try {
+          const xmlText = await PROXY_STRATEGIES[i](targetUrl);
+          
+          if (!xmlText || xmlText.length < 100) throw new Error("Risposta corta");
+
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+          if (xmlDoc.getElementsByTagName("parsererror").length > 0) throw new Error("Errore XML");
+
+          const items = xmlDoc.querySelectorAll("item");
+          const news: RawNewsItem[] = [];
+          
+          items.forEach((item, index) => {
+            if (index > 15) return; 
+            news.push({
+              title: item.querySelector("title")?.textContent || "",
+              link: item.querySelector("link")?.textContent || "",
+              description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 350).trim() + "..." || "",
+              pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
+            });
+          });
+          
+          if (news.length > 0) {
+            console.log(`%c[RSS-SUCCESS] Recuperati ${news.length} elementi da ${baseUrl}`, "color: #10b981; font-weight: bold");
+            return news;
+          }
+        } catch (error: any) {
+          continue; // Prova prossimo proxy o prossimo feed
+        }
+      }
+  }
+
+  console.error(`%c[RSS-FAIL] Nessun feed raggiungibile per: ${category}`, "color: #ef4444");
+  return [];
 };
