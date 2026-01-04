@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="it">
   <head>
@@ -63,7 +64,6 @@
   }
 }
 </script>
-<!-- Importazione Fonts Sobri ed Eleganti: Libre Baskerville (Titoli) + Source Sans 3 (Testi) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet">
@@ -75,10 +75,10 @@
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>
-<link rel="stylesheet" href="/index.css">
 </head>
-  <body class="text-slate-900 antialiased">
+  <body class="text-slate-900 antialiased bg-joy-50">
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <!-- Entry Point per il caricamento del modulo su Vercel -->
+    <script type="module" src="index.tsx"></script>
+  </body>
 </html>
