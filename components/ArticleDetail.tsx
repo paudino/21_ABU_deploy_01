@@ -36,6 +36,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   const [loadingComments, setLoadingComments] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(article.imageUrl);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
 
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
@@ -52,9 +53,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               db.hasUserDisliked(id, currentUser.id).then(setUserHasDisliked);
           }
           loadComments(id);
-      } else {
-          // Se l'articolo non ha ID, lo carichiamo comunque dai commenti se possibile via URL
-          // Ma solitamente preferiamo attendere che l'articolo venga "assicurato" nel DB
       }
 
       if (!article.imageUrl || article.imageUrl.includes('picsum.photos')) {
@@ -135,27 +133,27 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
       } catch (e) {} finally { setSubmittingComment(false); }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
+  const handleDeleteConfirm = async (commentId: string) => {
     if (!currentUser) return;
-    if (!confirm("Vuoi eliminare questo commento?")) return;
-    
     try {
         await db.deleteComment(commentId, currentUser.id);
         setComments(prev => prev.filter(c => c.id !== commentId));
+        setDeletingCommentId(null);
     } catch (e) {
         alert("Errore durante l'eliminazione.");
+        setDeletingCommentId(null);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 overflow-y-auto backdrop-blur-md p-0 md:p-8 animate-in fade-in">
-      <div className="bg-white md:max-w-4xl mx-auto md:rounded-2xl shadow-2xl overflow-hidden min-h-[100vh] md:min-h-[80vh] flex flex-col relative">
+      <div className="bg-white md:max-w-4xl mx-auto md:rounded-2xl shadow-2xl overflow-hidden min-h-[100vh] md:min-h-[80vh] flex flex-col relative text-slate-900">
         <div className="absolute top-4 right-4 z-10">
             <button onClick={onClose} className="bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition"><IconX /></button>
         </div>
         
         <div className="relative h-64 md:h-96 w-full bg-slate-200">
-          <img src={currentImageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} className="w-full h-full object-cover"/>
+          <img src={currentImageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} className="w-full h-full object-cover" alt={article.title}/>
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-6 pt-24">
             <h1 className="text-2xl md:text-4xl font-bold text-white font-display">{article.title}</h1>
           </div>
@@ -185,15 +183,15 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-4 border-t border-b py-6 mb-8">
-              <button onClick={handleLike} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${userHasLiked ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-white border-slate-200'}`}>
+              <button onClick={handleLike} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${userHasLiked ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
                   <IconThumbUp filled={userHasLiked} />
                   <span className="font-bold">{likeCount}</span>
               </button>
-              <button onClick={handleDislike} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${userHasDisliked ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-white border-slate-200'}`}>
+              <button onClick={handleDislike} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${userHasDisliked ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
                   <IconThumbDown filled={userHasDisliked} />
                   <span className="font-bold">{dislikeCount}</span>
               </button>
-              <button onClick={() => onToggleFavorite(article)} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${isFavorite ? 'bg-amber-50 text-amber-500 border-amber-200' : 'bg-white border-slate-200'}`}>
+              <button onClick={() => onToggleFavorite(article)} className={`flex items-center space-x-2 px-4 py-2 rounded-full transition border ${isFavorite ? 'bg-amber-50 text-amber-500 border-amber-200' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
                   <IconHeart filled={isFavorite} />
                   <span>{isFavorite ? 'Salvato' : 'Salva'}</span>
               </button>
@@ -203,8 +201,20 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                 <h3 className="text-xl font-display font-bold text-slate-800 mb-4">Commenti</h3>
                 {currentUser && (
                     <div className="flex gap-2 mb-8">
-                        <textarea value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-joy-400 outline-none transition" placeholder="Lascia un commento..." />
-                        <button onClick={handlePostComment} disabled={submittingComment} className="bg-joy-500 text-white px-6 rounded-xl font-bold hover:bg-joy-600 transition disabled:opacity-50">Invia</button>
+                        <textarea 
+                            value={newComment} 
+                            onChange={e => setNewComment(e.target.value)} 
+                            className="flex-1 border p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-joy-400 focus:border-joy-400 outline-none transition resize-none" 
+                            rows={2}
+                            placeholder="Lascia un commento..." 
+                        />
+                        <button 
+                            onClick={handlePostComment} 
+                            disabled={submittingComment || !newComment.trim()} 
+                            className="bg-joy-500 text-white px-6 rounded-xl font-bold hover:bg-joy-600 transition disabled:opacity-50 shadow-md shadow-joy-100"
+                        >
+                            Invia
+                        </button>
                     </div>
                 )}
                 <div className="space-y-4">
@@ -212,7 +222,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                         <p className="text-slate-400 italic text-sm">Nessun commento ancora. Sii il primo!</p>
                     ) : (
                         comments.map(c => (
-                            <div key={c.id} className="p-4 bg-slate-50 rounded-xl group relative border border-slate-100">
+                            <div key={c.id} className="p-4 bg-slate-50 rounded-xl group relative border border-slate-100 transition-all hover:bg-slate-100/50">
                                 <div className="flex justify-between text-xs font-bold text-slate-400 mb-2">
                                     <div className="flex items-center gap-2">
                                         <div className="w-5 h-5 bg-joy-100 text-joy-600 rounded-full flex items-center justify-center text-[10px]">{c.username.charAt(0).toUpperCase()}</div>
@@ -221,13 +231,34 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                                     <div className="flex items-center gap-3">
                                         <span>{new Date(c.timestamp).toLocaleDateString()}</span>
                                         {currentUser && currentUser.id === c.userId && (
-                                            <button 
-                                                onClick={() => handleDeleteComment(c.id)}
-                                                className="text-slate-300 hover:text-red-500 transition-colors"
-                                                title="Elimina commento"
-                                            >
-                                                <IconTrash className="w-3.5 h-3.5" />
-                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                {deletingCommentId === c.id ? (
+                                                    <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
+                                                        <button 
+                                                            onClick={() => handleDeleteConfirm(c.id)}
+                                                            className="text-emerald-500 hover:text-emerald-600 p-1"
+                                                            title="Conferma eliminazione"
+                                                        >
+                                                            <IconCheck className="w-4 h-4" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => setDeletingCommentId(null)}
+                                                            className="text-rose-500 hover:text-rose-600 p-1"
+                                                            title="Annulla"
+                                                        >
+                                                            <IconX className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button 
+                                                        onClick={() => setDeletingCommentId(c.id)}
+                                                        className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                                                        title="Elimina commento"
+                                                    >
+                                                        <IconTrash className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 </div>
