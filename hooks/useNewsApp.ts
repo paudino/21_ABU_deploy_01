@@ -65,7 +65,6 @@ export const useNewsApp = () => {
               if (!dbCategories || dbCategories.length === 0) dbCategories = DEFAULT_CATEGORIES;
               setCategories(dbCategories);
 
-              // Se non c'è una categoria attiva, imposta la prima
               if (!activeCategoryIdRef.current && dbCategories.length > 0) {
                   const firstCat = dbCategories[0];
                   setActiveCategoryId(firstCat.id);
@@ -78,118 +77,91 @@ export const useNewsApp = () => {
       refreshCategories();
   }, [currentUser]);
 
+  // Gestione caricamento preferiti
+  useEffect(() => {
+    if (showFavoritesOnly && currentUser) {
+        setLoading(true);
+        setArticles([]);
+        db.getUserFavoriteArticles(currentUser.id).then(favs => {
+            setArticles(favs);
+            setLoading(false);
+        }).catch(err => {
+            console.error("Errore caricamento preferiti:", err);
+            setLoading(false);
+        });
+    } else if (!showFavoritesOnly && activeCategoryId) {
+        // Quando torniamo dalla vista preferiti, ricarichiamo la categoria attiva
+        const cat = categories.find(c => c.id === activeCategoryId);
+        if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, false);
+    }
+  }, [showFavoritesOnly, currentUser]);
+
   // Caricamento Notizie
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
     if (showFavoritesOnly && !forceAi) return; 
-    if (isFetchingRef.current) {
-        console.warn("[Fetch] Già in corso, ignoro richiesta.");
-        return;
-    }
+    if (isFetchingRef.current) return;
     
     isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
     
     try {
-        // Se NON è un refresh forzato, controlliamo la cache locale
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel);
             if (cached && cached.length > 0) {
-                console.log(`%c[Source: DB-Cache] Dati caricati dall'archivio per: ${catLabel}`, "color: #6366f1; font-weight: bold");
                 setArticles(cached); 
                 setLoading(false); 
                 isFetchingRef.current = false;
                 return; 
             }
-        } else {
-            console.log(`%c[Source: FORCE-AI] Ignoro cache e cerco nuove notizie per: ${catLabel}`, "color: #f59e0b; font-weight: bold");
         }
 
-        // Chiamata all'AI (che include il recupero RSS)
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
-            // Mostriamo subito i risultati (sia quelli tradotti da Gemini che il fallback RSS originale)
             const articlesWithNewTag = aiArticles.map(a => ({ ...a, isNew: true }));
             setArticles(articlesWithNewTag);
             
-            // Salvataggio in background per le prossime volte
             db.saveArticles(catLabel, aiArticles).then(saved => {
                  setArticles(current => {
                     const idMap = new Map<string, string>();
                     saved.forEach(s => { if (s.url && s.id) idMap.set(s.url, s.id); });
                     return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
                  });
-            }).catch(err => console.error("[DB] Errore salvataggio:", err));
+            });
 
         } else {
             setNotification("Nessuna notizia trovata in questo momento. Riprova più tardi.");
         }
     } catch (error: any) {
-        console.error("%c[Fetch-Error] Impossibile recuperare notizie:", "color: #ef4444", error);
+        console.error("[Fetch-Error]", error);
         setNotification(`Errore: ${error.message || 'Servizio momentaneamente non disponibile'}`);
-        
-        // Fallback estremo: se non abbiamo nulla, proviamo a mostrare quello che c'è nel DB
-        if (articles.length === 0) {
-            const cachedFallback = await db.getCachedArticles(catLabel);
-            if (cachedFallback.length > 0) setArticles(cachedFallback);
-        }
     } finally {
         setLoading(false);
         isFetchingRef.current = false;
     }
   };
 
-  // Caricamento iniziale
-  useEffect(() => {
-    if (initialLoadDone.current) return;
-    initialLoadDone.current = true;
-    
-    const startUp = async () => {
-      setLoading(true);
-      try {
-        await db.seedInspiration().catch(console.error);
-        
-        // Aspettiamo un attimo che le categorie siano caricate dal DB
-        setTimeout(async () => {
-            const currentCat = categories.find(c => c.id === activeCategoryIdRef.current) || DEFAULT_CATEGORIES[0];
-            if (!showFavoritesOnly) {
-               await fetchNewsForCategory(currentCat.id, currentCat.label, currentCat.value, false);
-            }
-        }, 500);
-
-        setTimeout(() => { db.cleanupOldArticles().catch(console.error); }, 15000);
-      } catch (e) {
-        setLoading(false);
-      }
-    };
-    startUp();
-  }, [categories.length]); // Si attiva quando le categorie sono pronte
-
   const handleCategoryChange = (catId: string) => {
     if (activeCategoryIdRef.current === catId && !showFavoritesOnly) return;
     
-    console.log(`[UI] Cambio categoria -> ${catId}`);
     activeCategoryIdRef.current = catId;
     setActiveCategoryId(catId);
     
     if (showFavoritesOnly) {
         setShowFavoritesOnly(false);
-        return; 
+    } else {
+        setArticles([]); 
+        const cat = categories.find(c => c.id === catId);
+        if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false); 
     }
-
-    setArticles([]); // Pulisci la vista per feedback immediato
-    const cat = categories.find(c => c.id === catId);
-    if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false); 
   };
 
   const handleRefresh = () => {
-      // Usiamo il Ref per essere sicuri di avere l'ID corrente reale
       const currentId = activeCategoryIdRef.current;
       const cat = categories.find(c => c.id === currentId);
-      console.log(`[UI] Richiesta refresh per categoria ID: ${currentId} (${cat?.label})`);
       if (cat) {
-          setArticles([]); // Feedback visivo immediato (mostra skeleton)
+          setArticles([]); 
           fetchNewsForCategory(currentId, cat.label, cat.value, true);
       }
   };
@@ -200,17 +172,30 @@ export const useNewsApp = () => {
         if (updatedArticle.url && a.url === updatedArticle.url) return { ...updatedArticle, id: a.id || updatedArticle.id };
         return a;
     }));
+    // Sincronizza anche l'articolo selezionato se è lo stesso
+    if (selectedArticle && (selectedArticle.id === updatedArticle.id || selectedArticle.url === updatedArticle.url)) {
+        setSelectedArticle(updatedArticle);
+    }
   };
 
   const handleToggleFavorite = async (article: Article) => {
     if (!currentUser) { setShowLoginModal(true); return; }
     let articleId = article.id;
+    let articleToUpdate = { ...article };
+
     if (!articleId) {
         const saved = await db.saveArticles(article.category || 'Generale', [article]);
-        if (saved && saved.length > 0) articleId = saved[0].id;
+        if (saved && saved.length > 0) {
+            articleId = saved[0].id;
+            articleToUpdate = saved[0];
+        }
     }
+    
     if (!articleId) return;
+
     const isCurrentlyFav = favoriteArticleIds.has(articleId);
+    
+    // Aggiornamento ottimistico UI
     if (isCurrentlyFav) {
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(articleId!); return n; });
         if (showFavoritesOnly) setArticles(prev => prev.filter(a => a.id !== articleId));
@@ -219,6 +204,9 @@ export const useNewsApp = () => {
         setFavoriteArticleIds(prev => new Set(prev).add(articleId!));
         await db.addFavorite(articleId, currentUser.id);
     }
+
+    // Fondamentale: aggiorna l'articolo nel set di dati e nella selezione
+    handleArticleUpdate(articleToUpdate);
   };
 
   return {
