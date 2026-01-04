@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { ArticleList } from './components/ArticleList';
@@ -39,7 +39,7 @@ function App() {
   return (
     <div className="min-h-screen relative font-sans text-slate-900 flex flex-col">
       
-      {/* Sfondo Immagine Fisso che emana positività */}
+      {/* Sfondo Immagine Fisso */}
       <div className="fixed inset-0 z-[-1]">
         <img 
           src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2073&auto=format&fit=crop" 
@@ -58,17 +58,16 @@ function App() {
         onLogout={handleLogout}
       />
 
-      {/* Barra Categorie - ORA SEMPRE VISIBILE PER PERMETTERE NAVIGAZIONE */}
+      {/* Barra Categorie */}
       <CategoryBar 
         categories={categories}
-        // Se siamo nei preferiti, nessuna categoria è visivamente attiva
         activeCategory={showFavoritesOnly ? '' : activeCategoryId}
         currentUser={currentUser}
         onSelectCategory={setActiveCategoryId}
         onAddCategory={handleAddCategory}
       />
 
-      {/* Sfida del Giorno - Visibile solo in Home e SOLO se UTENTE LOGGATO */}
+      {/* Sfida del Giorno */}
       {!showFavoritesOnly && currentUser && (
          <DailyDeed />
       )}
@@ -106,7 +105,6 @@ function App() {
         <ArticleDetail 
           article={selectedArticle} 
           currentUser={currentUser} 
-          // Calcoliamo lo stato del preferito qui, dove abbiamo la "verità" (il Set favoriteArticleIds)
           isFavorite={selectedArticle.id ? favoriteArticleIds.has(selectedArticle.id) : false}
           onClose={() => setSelectedArticle(null)}
           onLoginRequest={() => setShowLoginModal(true)}
