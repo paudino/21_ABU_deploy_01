@@ -1,9 +1,7 @@
-// Fix: Change named import { React } to default import React
-import React, { useEffect } from 'react';
+
+import React from 'react';
 import { Article, User } from '../types';
 import { IconHeart, IconRefresh, IconX } from './Icons';
-import { generateArticleImage } from '../services/geminiService';
-import { db } from '../services/dbService';
 import { Tooltip } from './Tooltip';
 
 interface ArticleListProps {
@@ -43,39 +41,9 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onCloseFavorites
 }) => {
 
-  useEffect(() => {
-    if (loading || showFavoritesOnly || articles.length === 0) return;
-
-    let isMounted = true;
-
-    const generateImagesSequentially = async () => {
-        const articlesNeedingImage = articles.filter(a => !a.imageUrl);
-        
-        for (const article of articlesNeedingImage) {
-            if (!isMounted) break;
-            
-            try {
-                const newImg = await generateArticleImage(article.title);
-                if (newImg && isMounted) {
-                    await db.updateArticleImage(article.url, newImg);
-                    if (onImageGenerated) onImageGenerated(article.url, newImg);
-                }
-                // Aspetta 5 secondi tra un'immagine e l'altra (Max 12 RPM)
-                await new Promise(resolve => setTimeout(resolve, 5000));
-            } catch (e) {
-                console.error("Errore generazione immagine sequenziale:", e);
-                await new Promise(resolve => setTimeout(resolve, 10000));
-            }
-        }
-    };
-
-    // Aspetta 8 secondi prima di iniziare a generare immagini (lascia finire News/Quote/Deed)
-    const timer = setTimeout(generateImagesSequentially, 8000);
-    return () => { 
-        isMounted = false;
-        clearTimeout(timer); 
-    };
-  }, [articles, loading, showFavoritesOnly]);
+  // NOTA: La generazione automatica delle immagini è stata disattivata 
+  // per preservare la quota API Gemini e prevenire errori 429.
+  // Le immagini vengono ora generate solo nel dettaglio dell'articolo o caricate via placeholder.
 
   const showSkeletons = loading && articles.length === 0;
 
