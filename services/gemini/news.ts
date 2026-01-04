@@ -5,57 +5,54 @@ import { fetchRawNewsFromRSS, RawNewsItem } from '../newsFetcher';
 
 /**
  * Recupera notizie POSITIVE e REALI.
- * FLUSSO: RSS Feed (Dati Reali) -> Gemini (Analisi e Traduzione) -> UI.
+ * Se l'AI è in "429", restituisce i dati grezzi RSS come fallback silenzioso.
  */
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
-  // 1. Recuperiamo dati reali dalla fonte RSS (nessun limite di quota qui)
+  console.log(`%c[SOURCE: WEB-RSS] Inizio recupero per "${categoryLabel}"...`, "color: #3b82f6; font-weight: bold; font-size: 12px;");
+  
   const rawNews = await fetchRawNewsFromRSS(categoryLabel);
   
   if (rawNews.length === 0) {
-    console.warn("[News] Nessuna notizia trovata nei feed RSS.");
+    console.error(`%c[SOURCE: WEB-RSS] ERRORE: Nessun dato grezzo disponibile.`, "color: #ef4444; font-weight: bold");
     return [];
   }
 
   const ai = getClient();
-  
-  // Prepariamo la lista di notizie per Gemini
-  const newsListString = rawNews.map((n, i) => `[ID:${i}] Titolo: ${n.title}\nDesc: ${n.description}`).join('\n---\n');
+  const newsListString = rawNews.slice(0, 8).map((n, i) => `[ID:${i}] Title: ${n.title}\nDesc: ${n.description}`).join('\n---\n');
 
-  // 2. Chiediamo a Gemini di scegliere le 3 migliori, tradurle in italiano e validarle
   const prompt = `
-    Sei un redattore esperto. Ti fornisco una lista di notizie REALI tratte da testate internazionali.
+    Analizza queste notizie reali e scegli le 3 più positive e ispiranti.
+    Traducile in ITALIANO.
     
-    LISTA NOTIZIE:
+    NOTIZIE:
     ${newsListString}
     
-    TASK:
-    1. Scegli le 3 notizie PIÙ POSITIVE, ISPRANTI e SIGNIFICATIVE.
-    2. Traducile fedelmente in ITALIANO.
-    3. Per ogni notizia scelta, genera un punteggio di sentiment (0.7 a 1.0).
-    4. Usa il link originale corrispondente all'ID.
-    
-    RESTITUISCI ESCLUSIVAMENTE UN ARRAY JSON:
-    [{"id_originale": 0, "title": "Titolo in italiano", "summary": "Riassunto in italiano", "source": "Nome testata", "sentimentScore": 0.9}]
+    RESTITUISCI SOLO JSON:
+    [{"id_originale": 0, "title": "...", "summary": "...", "source": "...", "sentimentScore": 0.9}]
   `;
 
   try {
-    console.log(`[News] Analisi AI su notizie REALI per: ${categoryLabel}...`);
+    console.log(`%c[SOURCE: GEMINI-AI] Invio ${rawNews.length} notizie a Gemini per elaborazione...`, "color: #8b5cf6; font-weight: bold; font-size: 12px;");
     
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
-    }));
+    }), 1, 15000); 
 
     const text = response.text || "[]";
-    return parseArticles(text, rawNews, categoryLabel);
+    const articles = parseArticles(text, rawNews, categoryLabel);
+    
+    console.log(`%c[SOURCE: GEMINI-AI] Elaborazione AI completata con successo.`, "color: #10b981; font-weight: bold");
+    return articles;
 
   } catch (error: any) {
-    console.error("[News] Errore analisi AI:", error);
-    // Se fallisce l'AI, restituiamo una versione base delle notizie RSS (senza analisi)
-    return rawNews.slice(0, 3).map(n => ({
+    console.warn(`%c[SOURCE: FALLBACK-RSS] L'AI non ha risposto (Quota o Errore). Mostro dati RSS grezzi.`, "color: #f59e0b; font-weight: bold");
+    
+    // FALLBACK: Restituiamo le notizie originali (titoli in inglese ma funzionanti)
+    return rawNews.slice(0, 4).map(n => ({
         title: n.title,
         summary: n.description,
-        source: "RSS News",
+        source: "Global RSS Feed (Original)",
         url: n.link,
         date: new Date(n.pubDate).toISOString().split('T')[0],
         category: categoryLabel,
@@ -67,17 +64,15 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
 
 const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: string): Article[] => {
     let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
     try {
         const aiChoices = JSON.parse(cleanText);
         if (!Array.isArray(aiChoices)) return [];
-
         return aiChoices.map((choice: any) => {
             const original = rawNews[choice.id_originale] || rawNews[0];
             return {
                 title: choice.title || original.title,
                 summary: choice.summary || original.description,
-                source: choice.source || "Fonte Verificata",
+                source: choice.source || "Fonte News",
                 url: original.link,
                 date: new Date(original.pubDate).toISOString().split('T')[0],
                 category: categoryLabel,
@@ -86,7 +81,7 @@ const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: stri
             };
         });
     } catch (e) {
-        console.error("[News] Errore parsing JSON:", e);
+        console.error("[Parser] Errore parsing JSON da Gemini:", e);
         return [];
     }
 };
