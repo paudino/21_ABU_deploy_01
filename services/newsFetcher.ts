@@ -71,57 +71,73 @@ export const fetchRawNewsFromRSS = async (category: string): Promise<RawNewsItem
       for (const proxyFn of PROXY_STRATEGIES) {
         try {
           const xmlText = await proxyFn(baseUrl);
-          if (!xmlText || xmlText.length < 100) continue;
+          if (!xmlText || xmlText.length < 50) continue;
 
           const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+          let xmlDoc = parser.parseFromString(xmlText, "text/xml");
           
-          if (xmlDoc.getElementsByTagName("parsererror").length > 0) continue;
-
-          // Gestione RSS Standard
-          const items = xmlDoc.querySelectorAll("item");
-          if (items.length > 0) {
-            const news: RawNewsItem[] = [];
-            items.forEach((item, index) => {
-              if (index > 10) return; 
-              news.push({
-                title: item.querySelector("title")?.textContent || "Senza Titolo",
-                link: item.querySelector("link")?.textContent || "",
-                description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || "",
-                pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
-              });
-            });
-            return news;
+          if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+             xmlDoc = parser.parseFromString(xmlText, "application/xml");
           }
 
-          // Gestione Atom
-          const entries = xmlDoc.querySelectorAll("entry");
-          if (entries.length > 0) {
-              const news: RawNewsItem[] = [];
-              entries.forEach((entry, index) => {
-                if (index > 10) return;
-                news.push({
-                    title: entry.querySelector("title")?.textContent || "Senza Titolo",
-                    link: entry.querySelector("link")?.getAttribute("href") || "",
-                    description: entry.querySelector("summary")?.textContent?.replace(/<[^>]*>?/gm, '') || 
-                                 entry.querySelector("content")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300) || "",
-                    pubDate: entry.querySelector("updated")?.textContent || new Date().toISOString()
-                });
-              });
-              return news;
-          }
+          const results = parseXmlResponse(xmlDoc);
+          if (results.length > 0) return results;
+
         } catch (error) {
-          console.warn(`[Proxy-Fail] Fallito recupero da ${baseUrl} usando proxy.`);
+          console.warn(`[Proxy-Fail] Fallito recupero da ${baseUrl}`, error);
           continue; 
         }
       }
   }
   
-  // Se tutto fallisce, restituiamo un piccolo set di notizie statiche di emergenza per non rompere la UI
   return [{
-      title: "Il mondo continua a splendere",
+      title: "C'è sempre del buono nel mondo",
       link: "https://www.goodnewsnetwork.org",
-      description: "Nonostante i piccoli intoppi tecnici, ci sono migliaia di storie positive che aspettano di essere raccontate oggi.",
+      description: "Nonostante i piccoli ritardi tecnici, migliaia di storie positive accadono in questo momento. Ricarica tra qualche istante per leggerle.",
       pubDate: new Date().toISOString()
   }];
 };
+
+function parseXmlResponse(xmlDoc: Document): RawNewsItem[] {
+    const news: RawNewsItem[] = [];
+
+    // RSS Standard
+    const items = xmlDoc.querySelectorAll("item");
+    if (items.length > 0) {
+        items.forEach((item, index) => {
+            if (index >= 12) return; 
+            news.push({
+                title: item.querySelector("title")?.textContent || "Notizia Positiva",
+                link: item.querySelector("link")?.textContent || "",
+                description: cleanContent(item.querySelector("description")?.textContent || ""),
+                pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
+            });
+        });
+        return news;
+    }
+
+    // Atom Standard
+    const entries = xmlDoc.querySelectorAll("entry");
+    if (entries.length > 0) {
+        entries.forEach((entry, index) => {
+            if (index >= 12) return;
+            news.push({
+                title: entry.querySelector("title")?.textContent || "Notizia Positiva",
+                link: entry.querySelector("link")?.getAttribute("href") || entry.querySelector("link")?.textContent || "",
+                description: cleanContent(entry.querySelector("summary")?.textContent || entry.querySelector("content")?.textContent || ""),
+                pubDate: entry.querySelector("updated")?.textContent || new Date().toISOString()
+            });
+        });
+        return news;
+    }
+
+    return news;
+}
+
+function cleanContent(html: string): string {
+    return html.replace(/<[^>]*>?/gm, '')
+               .replace(/&nbsp;/g, ' ')
+               .replace(/\s+/g, ' ')
+               .substring(0, 350)
+               .trim();
+}
