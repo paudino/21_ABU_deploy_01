@@ -1,7 +1,7 @@
 
 /**
  * Servizio per il recupero di notizie REALI da fonti giornalistiche esterne.
- * Utilizza feed RSS pubblici (Italiani e Internazionali) e una rotazione di proxy CORS.
+ * Utilizza feed RSS pubblici e una rotazione di proxy CORS con fallback.
  */
 
 const RSS_FEEDS: Record<string, string[]> = {
@@ -49,25 +49,16 @@ export interface RawNewsItem {
   pubDate: string;
 }
 
-/**
- * Proxy disponibili per bypassare i blocchi CORS del browser.
- */
 const PROXY_STRATEGIES = [
   async (url: string) => {
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&disableCache=true`);
     if (!res.ok) throw new Error("AllOrigins fail");
     const data = await res.json();
-    if (!data.contents) throw new Error("Empty AllOrigins content");
     return data.contents;
   },
   async (url: string) => {
     const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error("Corsproxy.io fail");
-    return await res.text();
-  },
-  async (url: string) => {
-    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error("Codetabs fail");
+    if (!res.ok) throw new Error("Corsproxy fail");
     return await res.text();
   }
 ];
@@ -77,54 +68,60 @@ export const fetchRawNewsFromRSS = async (category: string): Promise<RawNewsItem
   const shuffledUrls = [...urls].sort(() => Math.random() - 0.5);
 
   for (const baseUrl of shuffledUrls) {
-      for (let i = 0; i < PROXY_STRATEGIES.length; i++) {
+      for (const proxyFn of PROXY_STRATEGIES) {
         try {
-          const xmlText = await PROXY_STRATEGIES[i](baseUrl);
-          if (!xmlText || xmlText.length < 50) continue;
+          const xmlText = await proxyFn(baseUrl);
+          if (!xmlText || xmlText.length < 100) continue;
 
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(xmlText, "text/xml");
           
-          if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
-              const entries = xmlDoc.querySelectorAll("entry");
-              if (entries.length > 0) return parseAtom(xmlDoc);
-              continue;
+          if (xmlDoc.getElementsByTagName("parsererror").length > 0) continue;
+
+          // Gestione RSS Standard
+          const items = xmlDoc.querySelectorAll("item");
+          if (items.length > 0) {
+            const news: RawNewsItem[] = [];
+            items.forEach((item, index) => {
+              if (index > 10) return; 
+              news.push({
+                title: item.querySelector("title")?.textContent || "Senza Titolo",
+                link: item.querySelector("link")?.textContent || "",
+                description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || "",
+                pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
+              });
+            });
+            return news;
           }
 
-          const items = xmlDoc.querySelectorAll("item");
-          const news: RawNewsItem[] = [];
-          
-          items.forEach((item, index) => {
-            if (index > 10) return; 
-            news.push({
-              title: item.querySelector("title")?.textContent || "Senza Titolo",
-              link: item.querySelector("link")?.textContent || "",
-              description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || "",
-              pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
-            });
-          });
-          
-          if (news.length > 0) return news;
+          // Gestione Atom
+          const entries = xmlDoc.querySelectorAll("entry");
+          if (entries.length > 0) {
+              const news: RawNewsItem[] = [];
+              entries.forEach((entry, index) => {
+                if (index > 10) return;
+                news.push({
+                    title: entry.querySelector("title")?.textContent || "Senza Titolo",
+                    link: entry.querySelector("link")?.getAttribute("href") || "",
+                    description: entry.querySelector("summary")?.textContent?.replace(/<[^>]*>?/gm, '') || 
+                                 entry.querySelector("content")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300) || "",
+                    pubDate: entry.querySelector("updated")?.textContent || new Date().toISOString()
+                });
+              });
+              return news;
+          }
         } catch (error) {
+          console.warn(`[Proxy-Fail] Fallito recupero da ${baseUrl} usando proxy.`);
           continue; 
         }
       }
   }
-  return [];
-};
-
-const parseAtom = (doc: Document): RawNewsItem[] => {
-    const entries = doc.querySelectorAll("entry");
-    const news: RawNewsItem[] = [];
-    entries.forEach((entry, index) => {
-        if (index > 10) return;
-        news.push({
-            title: entry.querySelector("title")?.textContent || "Senza Titolo",
-            link: entry.querySelector("link")?.getAttribute("href") || "",
-            description: entry.querySelector("summary")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || 
-                         entry.querySelector("content")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || "",
-            pubDate: entry.querySelector("updated")?.textContent || entry.querySelector("published")?.textContent || new Date().toISOString()
-        });
-    });
-    return news;
+  
+  // Se tutto fallisce, restituiamo un piccolo set di notizie statiche di emergenza per non rompere la UI
+  return [{
+      title: "Il mondo continua a splendere",
+      link: "https://www.goodnewsnetwork.org",
+      description: "Nonostante i piccoli intoppi tecnici, ci sono migliaia di storie positive che aspettano di essere raccontate oggi.",
+      pubDate: new Date().toISOString()
+  }];
 };
