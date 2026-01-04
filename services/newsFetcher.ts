@@ -1,16 +1,36 @@
 
 /**
  * Servizio per il recupero di notizie REALI da fonti giornalistiche esterne.
- * Utilizza feed RSS pubblici e una rotazione di proxy CORS per garantire resilienza.
+ * Utilizza feed RSS pubblici (Italiani e Internazionali) e una rotazione di proxy CORS.
  */
 
 const RSS_FEEDS: Record<string, string[]> = {
-  'Generale': ['https://www.goodnewsnetwork.org/category/news/feed/'],
-  'Tecnologia': ['https://phys.org/rss-feed/technology-news/', 'https://www.goodnewsnetwork.org/category/news/usa/feed/'],
-  'Medicina': ['https://www.goodnewsnetwork.org/category/news/health/feed/'],
-  'Ambiente': ['https://www.goodnewsnetwork.org/category/news/earth/feed/'],
-  'Società': ['https://www.goodnewsnetwork.org/category/news/inspiring/feed/'],
-  'Politica': ['https://www.goodnewsnetwork.org/category/news/world/feed/']
+  'Generale': [
+    'https://www.italiachecambia.org/feed/', 
+    'https://www.greenme.it/feed/',
+    'https://www.goodnewsnetwork.org/category/news/feed/'
+  ],
+  'Tecnologia': [
+    'https://www.wired.it/rss/feed/',
+    'https://phys.org/rss-feed/technology-news/'
+  ],
+  'Medicina': [
+    'https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml',
+    'https://www.goodnewsnetwork.org/category/news/health/feed/'
+  ],
+  'Ambiente': [
+    'https://www.greenme.it/category/ambiente/feed/',
+    'https://www.italiachecambia.org/categoria/ecologia/feed/',
+    'https://www.goodnewsnetwork.org/category/news/earth/feed/'
+  ],
+  'Società': [
+    'https://www.italiachecambia.org/categoria/societa/feed/',
+    'https://www.greenme.it/category/vivere/feed/'
+  ],
+  'Politica': [
+    'https://www.italiachecambia.org/categoria/politica/feed/',
+    'https://www.goodnewsnetwork.org/category/news/world/feed/'
+  ]
 };
 
 export interface RawNewsItem {
@@ -47,46 +67,51 @@ const PROXY_STRATEGIES = [
  */
 export const fetchRawNewsFromRSS = async (category: string): Promise<RawNewsItem[]> => {
   const urls = RSS_FEEDS[category] || RSS_FEEDS['Generale'];
-  const baseUrl = urls[Math.floor(Math.random() * urls.length)];
   
-  // Anti-cache: aggiungiamo un timestamp alla URL
-  const targetUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
-  
-  console.log(`%c[RSS-FETCH] Connessione a: ${targetUrl}`, "color: #94a3b8");
+  // Proviamo prima un feed italiano se disponibile (i primi della lista sono solitamente IT)
+  const sortedUrls = [...urls].sort((a, b) => {
+      const isAIt = a.includes('.it') || a.includes('italiachecambia');
+      const isBIt = b.includes('.it') || b.includes('italiachecambia');
+      return isAIt === isBIt ? 0 : isAIt ? -1 : 1;
+  });
 
-  for (let i = 0; i < PROXY_STRATEGIES.length; i++) {
-    try {
-      const xmlText = await PROXY_STRATEGIES[i](targetUrl);
-      
-      if (!xmlText || xmlText.length < 100) throw new Error("Risposta vuota");
+  for (const baseUrl of sortedUrls) {
+      const targetUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+      console.log(`%c[RSS-FETCH] Tentativo su: ${targetUrl}`, "color: #94a3b8");
 
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-      if (xmlDoc.getElementsByTagName("parsererror").length > 0) throw new Error("Errore XML");
+      for (let i = 0; i < PROXY_STRATEGIES.length; i++) {
+        try {
+          const xmlText = await PROXY_STRATEGIES[i](targetUrl);
+          
+          if (!xmlText || xmlText.length < 100) throw new Error("Risposta corta");
 
-      const items = xmlDoc.querySelectorAll("item");
-      const news: RawNewsItem[] = [];
-      
-      items.forEach((item, index) => {
-        if (index > 15) return; 
-        news.push({
-          title: item.querySelector("title")?.textContent || "",
-          link: item.querySelector("link")?.textContent || "",
-          description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300) + "..." || "",
-          pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
-        });
-      });
-      
-      if (news.length > 0) {
-        console.log(`%c[RSS-SUCCESS] Recuperati ${news.length} elementi via Proxy #${i + 1}`, "color: #10b981; font-weight: bold");
-        return news;
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+          if (xmlDoc.getElementsByTagName("parsererror").length > 0) throw new Error("Errore XML");
+
+          const items = xmlDoc.querySelectorAll("item");
+          const news: RawNewsItem[] = [];
+          
+          items.forEach((item, index) => {
+            if (index > 15) return; 
+            news.push({
+              title: item.querySelector("title")?.textContent || "",
+              link: item.querySelector("link")?.textContent || "",
+              description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 350).trim() + "..." || "",
+              pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
+            });
+          });
+          
+          if (news.length > 0) {
+            console.log(`%c[RSS-SUCCESS] Recuperati ${news.length} elementi da ${baseUrl}`, "color: #10b981; font-weight: bold");
+            return news;
+          }
+        } catch (error: any) {
+          continue; // Prova prossimo proxy o prossimo feed
+        }
       }
-    } catch (error: any) {
-      console.warn(`%c[RSS-RETRY] Proxy #${i + 1} fallito: ${error.message}`, "color: #f59e0b");
-      continue;
-    }
   }
 
-  console.error(`%c[RSS-FAIL] Tutti i proxy hanno fallito per: ${category}`, "color: #ef4444");
+  console.error(`%c[RSS-FAIL] Nessun feed raggiungibile per: ${category}`, "color: #ef4444");
   return [];
 };
