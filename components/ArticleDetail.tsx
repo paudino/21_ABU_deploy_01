@@ -35,7 +35,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
-  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [currentImageUrl, setCurrentImageUrl] = useState(article.imageUrl);
 
   const articleIdRef = useRef<string | undefined>(article.id);
@@ -43,9 +42,9 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
 
   useEffect(() => {
     const loadData = async () => {
-      // Caricamento dati voti/commenti...
-      if (articleIdRef.current) {
-          const id = articleIdRef.current;
+      if (article.id) {
+          articleIdRef.current = article.id;
+          const id = article.id;
           db.getLikeCount(id).then(setLikeCount);
           db.getDislikeCount(id).then(setDislikeCount);
           if (currentUser) {
@@ -53,12 +52,13 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               db.hasUserDisliked(id, currentUser.id).then(setUserHasDisliked);
           }
           loadComments(id);
+      } else {
+          // Se l'articolo non ha ID, lo carichiamo comunque dai commenti se possibile via URL
+          // Ma solitamente preferiamo attendere che l'articolo venga "assicurato" nel DB
       }
 
-      // Generazione immagine on-demand se manca
       if (!article.imageUrl || article.imageUrl.includes('picsum.photos')) {
           try {
-              console.log("[Detail] Generazione immagine on-demand...");
               const img = await generateArticleImage(article.title);
               if (img) {
                   setCurrentImageUrl(img);
@@ -87,6 +87,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           const saved = await db.saveArticles(article.category || 'Generale', [article]);
           if (saved && saved.length > 0) {
               articleIdRef.current = saved[0].id;
+              if (onUpdate) onUpdate(saved[0]);
               return saved[0].id || null;
           }
       } catch (e) {}
@@ -132,6 +133,18 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               setNewComment('');
           }
       } catch (e) {} finally { setSubmittingComment(false); }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!currentUser) return;
+    if (!confirm("Vuoi eliminare questo commento?")) return;
+    
+    try {
+        await db.deleteComment(commentId, currentUser.id);
+        setComments(prev => prev.filter(c => c.id !== commentId));
+    } catch (e) {
+        alert("Errore durante l'eliminazione.");
+    }
   };
 
   return (
@@ -189,20 +202,40 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
             <div className="space-y-6">
                 <h3 className="text-xl font-display font-bold text-slate-800 mb-4">Commenti</h3>
                 {currentUser && (
-                    <div className="flex gap-2">
-                        <textarea value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-3 rounded-xl bg-slate-50" placeholder="Lascia un commento..." />
-                        <button onClick={handlePostComment} disabled={submittingComment} className="bg-joy-500 text-white px-4 rounded-xl font-bold">Invia</button>
+                    <div className="flex gap-2 mb-8">
+                        <textarea value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 border p-3 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-joy-400 outline-none transition" placeholder="Lascia un commento..." />
+                        <button onClick={handlePostComment} disabled={submittingComment} className="bg-joy-500 text-white px-6 rounded-xl font-bold hover:bg-joy-600 transition disabled:opacity-50">Invia</button>
                     </div>
                 )}
-                {comments.map(c => (
-                    <div key={c.id} className="p-4 bg-slate-50 rounded-xl">
-                        <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
-                            <span>{c.username}</span>
-                            <span>{new Date(c.timestamp).toLocaleDateString()}</span>
-                        </div>
-                        <p className="text-sm text-slate-700">{c.text}</p>
-                    </div>
-                ))}
+                <div className="space-y-4">
+                    {comments.length === 0 ? (
+                        <p className="text-slate-400 italic text-sm">Nessun commento ancora. Sii il primo!</p>
+                    ) : (
+                        comments.map(c => (
+                            <div key={c.id} className="p-4 bg-slate-50 rounded-xl group relative border border-slate-100">
+                                <div className="flex justify-between text-xs font-bold text-slate-400 mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-5 h-5 bg-joy-100 text-joy-600 rounded-full flex items-center justify-center text-[10px]">{c.username.charAt(0).toUpperCase()}</div>
+                                        <span>{c.username}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <span>{new Date(c.timestamp).toLocaleDateString()}</span>
+                                        {currentUser && currentUser.id === c.userId && (
+                                            <button 
+                                                onClick={() => handleDeleteComment(c.id)}
+                                                className="text-slate-300 hover:text-red-500 transition-colors"
+                                                title="Elimina commento"
+                                            >
+                                                <IconTrash className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <p className="text-sm text-slate-700 leading-relaxed">{c.text}</p>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
           </div>
         </div>
