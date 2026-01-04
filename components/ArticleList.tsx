@@ -41,10 +41,6 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onCloseFavorites
 }) => {
 
-  // NOTA: La generazione automatica delle immagini è stata disattivata 
-  // per preservare la quota API Gemini e prevenire errori 429.
-  // Le immagini vengono ora generate solo nel dettaglio dell'articolo o caricate via placeholder.
-
   const showSkeletons = loading && articles.length === 0;
 
   return (
@@ -85,14 +81,14 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
       {notification && (
           <div className="mb-8 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl flex items-center justify-center gap-2 animate-in slide-in-from-top-4 fade-in">
-              <span className="font-medium font-sans">{notification}</span>
+              <span className="font-medium font-sans text-center">{notification}</span>
           </div>
       )}
 
       {showSkeletons ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white/80 rounded-2xl overflow-hidden shadow-sm border border-white h-96 animate-pulse" />
+            <div key={i} className="bg-white/80 rounded-2xl overflow-hidden shadow-sm border border-white h-[450px] animate-pulse" />
           ))}
         </div>
       ) : (
@@ -111,7 +107,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                   <div 
                     key={`${article.url}-${idx}`} 
                     onClick={() => onArticleClick(article)}
-                    className={`group bg-white/90 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 cursor-pointer flex flex-col h-full ${article.isNew ? 'border-2 border-emerald-500' : 'border border-white/60'}`}
+                    className={`group bg-white/90 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 cursor-pointer flex flex-col h-full border ${article.isNew ? 'border-emerald-400 ring-4 ring-emerald-500/10' : 'border-white/60'}`}
                   >
                     <div className="h-48 bg-slate-100 rounded-t-2xl overflow-hidden relative">
                         <img 
@@ -121,6 +117,9 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                           loading="lazy"
                         />
                         <div className="absolute top-3 right-3 bg-white/95 px-3 py-1 rounded-full text-xs font-bold text-brand-600 shadow-md">{(article.sentimentScore * 100).toFixed(0)}% Positivo</div>
+                        {article.isNew && (
+                            <div className="absolute top-3 left-3 bg-emerald-500 text-white px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-lg animate-bounce">Nuova</div>
+                        )}
                     </div>
                     <div className="p-6 flex-1 flex flex-col">
                       <div className="flex justify-between items-center text-xs text-slate-400 mb-3 uppercase font-sans">
