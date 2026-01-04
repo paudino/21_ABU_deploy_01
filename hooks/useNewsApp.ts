@@ -85,6 +85,7 @@ export const useNewsApp = () => {
       setArticles([]); 
       try {
           const favArticles = await db.getUserFavoriteArticles(userId);
+          console.log(`%c[Source: DB-Favorites] Caricati ${favArticles.length} preferiti dal DB.`, "color: #ec4899; font-weight: bold");
           setArticles(favArticles);
           const ids = new Set(favArticles.map(a => a.id).filter(Boolean) as string[]);
           setFavoriteArticleIds(ids);
@@ -118,7 +119,6 @@ export const useNewsApp = () => {
     const startUp = async () => {
       setLoading(true);
       try {
-        // Seeding dei contenuti ispirazionali reali
         await db.seedInspiration().catch(console.error);
         
         let startCat = DEFAULT_CATEGORIES[0];
@@ -129,6 +129,7 @@ export const useNewsApp = () => {
         if (!showFavoritesOnly) {
            const cached = await db.getCachedArticles(startCat.label);
            if (cached && cached.length > 0) {
+                console.log(`%c[Source: DB-Cache] Caricamento iniziale da archivio locale per: ${startCat.label}`, "color: #6366f1; font-weight: bold");
                 setArticles(cached); 
                 setLoading(false);
            } else {
@@ -152,6 +153,7 @@ export const useNewsApp = () => {
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel);
             if (cached && cached.length > 0) {
+                console.log(`%c[Source: DB-Cache] Notizie trovate in archivio per: ${catLabel}`, "color: #6366f1; font-weight: bold");
                 setArticles(cached); 
                 setLoading(false); 
                 return; 
