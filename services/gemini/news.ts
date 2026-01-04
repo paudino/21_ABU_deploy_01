@@ -5,62 +5,65 @@ import { fetchRawNewsFromRSS, RawNewsItem } from '../newsFetcher';
 
 /**
  * Recupera notizie POSITIVE e REALI.
- * Se l'AI fallisce, restituisce i dati grezzi RSS come fallback.
+ * Implementa una logica a 2 livelli: 
+ * 1. Recupero RSS (Dati Grezzi)
+ * 2. Elaborazione AI (Traduzione e Sentiment)
+ * 3. Fallback a RSS Originale in caso di errore AI.
  */
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
-  console.log(`%c[SOURCE: WEB-RSS] Inizio recupero per "${categoryLabel}"...`, "color: #3b82f6; font-weight: bold");
+  console.log(`%c[Source: WEB-RSS] Recupero feed per "${categoryLabel}"...`, "color: #3b82f6; font-weight: bold");
   
   const rawNews = await fetchRawNewsFromRSS(categoryLabel);
   
   if (!rawNews || rawNews.length === 0) {
-    console.error(`%c[SOURCE: WEB-RSS] ERRORE: Nessun dato disponibile dai feed.`, "color: #ef4444");
+    console.error(`%c[Source: WEB-RSS] Nessuna notizia trovata nei feed per: ${categoryLabel}`, "color: #ef4444");
     return [];
   }
 
   try {
     const ai = getClient();
-    // Prendiamo un subset casuale per variare i risultati se il feed non è cambiato
+    // Mescoliamo per non avere sempre gli stessi risultati in cima
     const shuffled = [...rawNews].sort(() => 0.5 - Math.random());
-    const newsListString = shuffled.slice(0, 10).map((n, i) => 
-        `[ID:${i}] Title: ${n.title || 'Senza Titolo'}\nDesc: ${n.description || 'Nessuna descrizione'}`
+    const newsListString = shuffled.slice(0, 8).map((n, i) => 
+        `[ID:${i}] Title: ${n.title}\nDesc: ${n.description}`
     ).join('\n---\n');
 
     const prompt = `
-      Analizza queste notizie reali e seleziona le 3 più positive, curiose o ispiranti.
-      Sii vario nelle scelte: non scegliere sempre le prime.
-      Traducile in ITALIANO in modo elegante e giornalistico.
+      Analizza queste notizie e seleziona le 3 più positive e ispiranti.
+      Traducile fedelmente in ITALIANO.
       
-      NOTIZIE DA ANALIZZARE:
+      NOTIZIE:
       ${newsListString}
       
-      RESTITUISCI SOLO UN ARRAY JSON VALIDO:
-      [{"id_originale": 0, "title": "Titolo in Italiano", "summary": "Riassunto positivo in Italiano", "source": "Nome Fonte", "sentimentScore": 0.95}]
+      RESTITUISCI SOLO JSON:
+      [{"id_originale": 0, "title": "...", "summary": "...", "source": "...", "sentimentScore": 0.9}]
     `;
 
-    console.log(`%c[SOURCE: GEMINI-AI] Elaborazione notizie con AI...`, "color: #8b5cf6; font-weight: bold");
+    console.log(`%c[Source: GEMINI-AI] Invio a elaborazione AI...`, "color: #8b5cf6; font-weight: bold");
     
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
-    }), 1, 10000); 
+    }), 1, 8000); 
 
     const text = response.text || "[]";
     const articles = parseArticles(text, shuffled, categoryLabel);
     
     if (articles.length > 0) {
-        console.log(`%c[SOURCE: GEMINI-AI] Elaborazione completata: ${articles.length} articoli pronti.`, "color: #10b981; font-weight: bold");
+        console.log(`%c[Source: GEMINI-AI] Successo.`, "color: #10b981; font-weight: bold");
         return articles;
-    } else {
-        throw new Error("Gemini ha restituito un array vuoto o malformato");
     }
+    throw new Error("Risposta AI vuota");
 
   } catch (error: any) {
-    console.warn(`%c[SOURCE: FALLBACK] Errore AI: ${error.message}. Utilizzo dati originali.`, "color: #f59e0b");
+    console.warn(`%c[Source: RSS-Fallback] AI non disponibile (${error.message}). Carico dati originali.`, "color: #f59e0b; font-weight: bold");
     
-    return rawNews.slice(0, 3).map(n => ({
+    // FALLBACK: Restituiamo le notizie originali (titoli in inglese ma notizie REALI e NUOVE)
+    // Questo previene che l'hook ricarichi la vecchia cache dal DB.
+    return rawNews.slice(0, 4).map(n => ({
         title: n.title,
         summary: n.description,
-        source: "Fonte Originale",
+        source: "Global Good News Feed",
         url: n.link,
         date: new Date(n.pubDate).toISOString().split('T')[0],
         category: categoryLabel,
@@ -80,7 +83,7 @@ const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: stri
             return {
                 title: choice.title || original.title,
                 summary: choice.summary || original.description,
-                source: choice.source || "Fonte",
+                source: choice.source || "Fonte News",
                 url: original.link,
                 date: new Date(original.pubDate).toISOString().split('T')[0],
                 category: categoryLabel,
