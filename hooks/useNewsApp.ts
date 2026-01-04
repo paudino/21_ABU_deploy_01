@@ -20,6 +20,7 @@ export const useNewsApp = () => {
 
   const activeCategoryIdRef = useRef<string>('');
   const initialLoadDone = useRef(false);
+  const isFetchingRef = useRef(false); // Previene fetch multiple
 
   useEffect(() => {
     const checkUser = async () => {
@@ -85,7 +86,6 @@ export const useNewsApp = () => {
       setArticles([]); 
       try {
           const favArticles = await db.getUserFavoriteArticles(userId);
-          console.log(`%c[Source: DB-Favorites] Caricati ${favArticles.length} preferiti dal DB.`, "color: #ec4899; font-weight: bold");
           setArticles(favArticles);
           const ids = new Set(favArticles.map(a => a.id).filter(Boolean) as string[]);
           setFavoriteArticleIds(ids);
@@ -129,7 +129,7 @@ export const useNewsApp = () => {
         if (!showFavoritesOnly) {
            const cached = await db.getCachedArticles(startCat.label);
            if (cached && cached.length > 0) {
-                console.log(`%c[Source: DB-Cache] Caricamento iniziale da archivio locale per: ${startCat.label}`, "color: #6366f1; font-weight: bold");
+                console.log(`%c[Source: DB-Cache] Caricamento iniziale da archivio per: ${startCat.label}`, "color: #6366f1; font-weight: bold");
                 setArticles(cached); 
                 setLoading(false);
            } else {
@@ -146,6 +146,9 @@ export const useNewsApp = () => {
 
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
     if (showFavoritesOnly && !forceAi) return; 
+    if (isFetchingRef.current) return;
+    
+    isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
     
@@ -153,18 +156,20 @@ export const useNewsApp = () => {
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel);
             if (cached && cached.length > 0) {
-                console.log(`%c[Source: DB-Cache] Notizie trovate in archivio per: ${catLabel}`, "color: #6366f1; font-weight: bold");
+                console.log(`%c[Source: DB-Cache] Carico dati salvati per: ${catLabel}`, "color: #6366f1; font-weight: bold");
                 setArticles(cached); 
                 setLoading(false); 
+                isFetchingRef.current = false;
                 return; 
             }
         }
 
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
-        if (aiArticles.length > 0) {
+        if (aiArticles && aiArticles.length > 0) {
             const newArticles = aiArticles.map(a => ({ ...a, isNew: true }));
             setArticles(newArticles);
+            
             db.saveArticles(catLabel, aiArticles).then(saved => {
                  setArticles(current => {
                     const idMap = new Map<string, string>();
@@ -173,24 +178,26 @@ export const useNewsApp = () => {
                  });
             }).catch(console.error);
         } else {
-            setNotification("Nessuna nuova notizia reale trovata al momento.");
+            setNotification("Nessuna nuova notizia trovata. Prova tra poco.");
         }
     } catch (error: any) {
-        setNotification("Impossibile caricare nuove notizie. Mostro quelle in archivio.");
+        console.error("ERRORE fetchNewsForCategory:", error);
+        setNotification(`Errore nel recupero: ${error.message || 'Controlla la console'}`);
         const cachedFallback = await db.getCachedArticles(catLabel);
         if (cachedFallback.length > 0) setArticles(cachedFallback);
     } finally {
         setLoading(false);
+        isFetchingRef.current = false;
     }
   };
 
   const handleCategoryChange = (catId: string) => {
+    if (activeCategoryIdRef.current === catId && !showFavoritesOnly) return;
     activeCategoryIdRef.current = catId;
     setActiveCategoryId(catId);
     if (showFavoritesOnly) { setShowFavoritesOnly(false); return; }
     setArticles([]); 
     setNotification(null);
-    setLoading(true);
     const cat = categories.find(c => c.id === catId);
     if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false); 
   };
