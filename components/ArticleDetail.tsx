@@ -3,9 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
 import { db } from '../services/dbService';
 import { generateArticleImage } from '../services/geminiService';
-import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck } from './Icons';
+import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconTrash, IconCheck } from './Icons';
 import { AudioPlayer } from './AudioPlayer';
-import { Tooltip } from './Tooltip';
 
 interface ArticleDetailProps {
   article: Article;
@@ -138,9 +137,9 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
     try {
         await db.deleteComment(commentId, currentUser.id);
         setComments(prev => prev.filter(c => c.id !== commentId));
-        setDeletingCommentId(null);
     } catch (e) {
-        alert("Errore durante l'eliminazione.");
+        console.error("Errore cancellazione commento:", e);
+    } finally {
         setDeletingCommentId(null);
     }
   };
@@ -218,8 +217,10 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                     </div>
                 )}
                 <div className="space-y-4">
-                    {comments.length === 0 ? (
-                        <p className="text-slate-400 italic text-sm">Nessun commento ancora. Sii il primo!</p>
+                    {loadingComments ? (
+                        <p className="text-slate-400 text-sm animate-pulse">Caricamento commenti...</p>
+                    ) : comments.length === 0 ? (
+                        <p className="text-slate-400 italic text-sm">Nessun commento ancora.</p>
                     ) : (
                         comments.map(c => (
                             <div key={c.id} className="p-4 bg-slate-50 rounded-xl group relative border border-slate-100 transition-all hover:bg-slate-100/50">
@@ -234,29 +235,11 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                                             <div className="flex items-center gap-1">
                                                 {deletingCommentId === c.id ? (
                                                     <div className="flex items-center gap-2 animate-in slide-in-from-right-2">
-                                                        <button 
-                                                            onClick={() => handleDeleteConfirm(c.id)}
-                                                            className="text-emerald-500 hover:text-emerald-600 p-1"
-                                                            title="Conferma eliminazione"
-                                                        >
-                                                            <IconCheck className="w-4 h-4" />
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => setDeletingCommentId(null)}
-                                                            className="text-rose-500 hover:text-rose-600 p-1"
-                                                            title="Annulla"
-                                                        >
-                                                            <IconX className="w-4 h-4" />
-                                                        </button>
+                                                        <button onClick={() => handleDeleteConfirm(c.id)} className="text-emerald-500 hover:text-emerald-600 p-1" title="Conferma"><IconCheck className="w-4 h-4" /></button>
+                                                        <button onClick={() => setDeletingCommentId(null)} className="text-rose-500 hover:text-rose-600 p-1" title="Annulla"><IconX className="w-4 h-4" /></button>
                                                     </div>
                                                 ) : (
-                                                    <button 
-                                                        onClick={() => setDeletingCommentId(c.id)}
-                                                        className="text-slate-300 hover:text-red-500 transition-colors p-1"
-                                                        title="Elimina commento"
-                                                    >
-                                                        <IconTrash className="w-3.5 h-3.5" />
-                                                    </button>
+                                                    <button onClick={() => setDeletingCommentId(c.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1" title="Elimina"><IconTrash className="w-3.5 h-3.5" /></button>
                                                 )}
                                             </div>
                                         )}
