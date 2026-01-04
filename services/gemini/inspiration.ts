@@ -1,14 +1,20 @@
-import { getClient } from './client';
+
+import { getClient, withRetry } from './client';
 import { Quote } from '../../types';
 
+/**
+ * Recupera una citazione FAMOSA e REALE.
+ */
 export const generateInspirationalQuote = async (): Promise<Quote | null> => {
     const ai = getClient();
     try {
-      const response = await ai.models.generateContent({
+      const response = await withRetry(() => ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Genera una citazione famosa, positiva e ispirante. 
-        Restituisci SOLO un oggetto JSON: { "text": "testo della citazione", "author": "autore" }`,
-      });
+        contents: `RECUPERA DALLA STORIA una citazione REALE, famosa e ispirante. 
+        DEVE essere una citazione esistente di un autore noto (es. filosofi, scienziati, leader storici).
+        NON INVENTARE IL TESTO.
+        Restituisci SOLO un oggetto JSON: { "text": "testo della citazione", "author": "autore reale" }`,
+      }));
   
       let text = response.text || "{}";
       text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -23,19 +29,23 @@ export const generateInspirationalQuote = async (): Promise<Quote | null> => {
       }
       return null;
     } catch (error) {
-      console.error("Errore Quote:", error);
+      console.error("Errore recupero citazione reale:", error);
       return null;
     }
 };
 
+/**
+ * Suggerisce una sfida basata su gesti di gentilezza oggettivi e praticabili.
+ */
 export const generateGoodDeed = async (): Promise<string | null> => {
     const ai = getClient();
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry(() => ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: `Suggerisci una piccola "Buona Azione" o gesto di gentilezza che una persona può fare oggi stesso (max 10 parole).
+            contents: `Suggerisci un piccolo "Gesto di Gentilezza" concreto e reale che una persona può fare oggi.
+            Evita suggerimenti astratti. Sii pratico (es. "Scrivi a un amico che non senti da tempo").
             Restituisci SOLO un oggetto JSON: { "text": "..." }`
-        });
+        }));
 
         let text = response.text || "{}";
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -44,7 +54,7 @@ export const generateGoodDeed = async (): Promise<string | null> => {
         return data.text || null;
 
     } catch (error) {
-        console.error("Errore Deed:", error);
+        console.error("Errore sfida reale:", error);
         return null;
     }
 };
