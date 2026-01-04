@@ -1,36 +1,33 @@
 
-import { getClient } from './client';
+import { getClient, withRetry } from './client';
 import { Modality } from "@google/genai";
 
-/**
- * Genera l'audio per un testo dato usando il modello TTS di Gemini.
- */
 export const generateAudio = async (text: string): Promise<string | null> => {
-    // Validazione input
-    let safeText = text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+    // Rimuoviamo caratteri speciali che potrebbero confondere il TTS
+    let safeText = text.replace(/[*_`#]/g, '').replace(/\s+/g, ' ').trim();
     if (safeText.length < 5) return null;
 
     const ai = getClient();
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry(() => ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
-            contents: { parts: [{ text: safeText }] },
+            // Utilizzo del formato array per contents come da documentazione
+            contents: [{ parts: [{ text: safeText }] }],
             config: {
                 responseModalities: [Modality.AUDIO],
                 speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Aoede' } // Voce calma e professionale
+                    voiceConfig: { 
+                        prebuiltVoiceConfig: { voiceName: 'Kore' } 
                     }
                 }
             }
-        });
+        }));
 
-        const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        return audioData || null;
-
+        // Estrazione dei dati audio in base64
+        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
     } catch (error) {
-        console.error("Errore generazione Audio:", error);
+        console.error("Errore generazione Audio Gemini:", error);
         return null;
     }
 };
