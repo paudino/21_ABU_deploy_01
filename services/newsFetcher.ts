@@ -54,102 +54,75 @@ export interface RawNewsItem {
  */
 const PROXY_STRATEGIES = [
   async (url: string) => {
-    // AllOrigins è solitamente il più stabile per feed XML
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&disableCache=true`);
     if (!res.ok) throw new Error("AllOrigins fail");
     const data = await res.json();
+    if (!data.contents) throw new Error("Empty AllOrigins content");
     return data.contents;
   },
   async (url: string) => {
-    // Codetabs come seconda opzione
-    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error("Codetabs fail");
+    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error("Corsproxy.io fail");
     return await res.text();
   },
   async (url: string) => {
-    // CorsProxy.io è sensibile a certi URL, lo usiamo come fallback
-    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-    if (!res.ok) throw new Error("Corsproxy fail");
+    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error("Codetabs fail");
     return await res.text();
   }
 ];
 
-/**
- * Recupera notizie grezze provando diverse strategie di proxy in sequenza.
- */
 export const fetchRawNewsFromRSS = async (category: string): Promise<RawNewsItem[]> => {
   const urls = RSS_FEEDS[category] || RSS_FEEDS['Generale'];
-  
-  // Ordiniamo mettendo i feed italiani (.it) per primi
-  const sortedUrls = [...urls].sort((a, b) => {
-      const isAIt = a.includes('.it') || a.includes('italiachecambia') || a.includes('avvenire');
-      const isBIt = b.includes('.it') || b.includes('italiachecambia') || b.includes('avvenire');
-      return isAIt === isBIt ? 0 : isAIt ? -1 : 1;
-  });
+  const shuffledUrls = [...urls].sort(() => Math.random() - 0.5);
 
-  for (const baseUrl of sortedUrls) {
-      // Rimosso cache-buster problematico per alcuni proxy
-      const targetUrl = baseUrl;
-      console.log(`%c[RSS-FETCH] Tentativo su: ${targetUrl}`, "color: #94a3b8");
-
+  for (const baseUrl of shuffledUrls) {
       for (let i = 0; i < PROXY_STRATEGIES.length; i++) {
         try {
-          const xmlText = await PROXY_STRATEGIES[i](targetUrl);
-          
-          if (!xmlText || xmlText.length < 100) throw new Error("Risposta vuota o troppo corta");
+          const xmlText = await PROXY_STRATEGIES[i](baseUrl);
+          if (!xmlText || xmlText.length < 50) continue;
 
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(xmlText, "text/xml");
           
-          // Verifica se è un XML valido
           if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
-              // Prova a vedere se è un feed Atom (alcuni siti usano Atom invece di RSS)
               const entries = xmlDoc.querySelectorAll("entry");
               if (entries.length > 0) return parseAtom(xmlDoc);
-              throw new Error("Errore parsing XML");
+              continue;
           }
 
           const items = xmlDoc.querySelectorAll("item");
           const news: RawNewsItem[] = [];
           
           items.forEach((item, index) => {
-            if (index > 15) return; 
+            if (index > 10) return; 
             news.push({
-              title: item.querySelector("title")?.textContent || "",
+              title: item.querySelector("title")?.textContent || "Senza Titolo",
               link: item.querySelector("link")?.textContent || "",
-              description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 400).trim() + "..." || "",
+              description: item.querySelector("description")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || "",
               pubDate: item.querySelector("pubDate")?.textContent || new Date().toISOString()
             });
           });
           
-          if (news.length > 0) {
-            console.log(`%c[RSS-SUCCESS] Recuperati ${news.length} elementi da ${baseUrl}`, "color: #10b981; font-weight: bold");
-            return news;
-          }
-        } catch (error: any) {
-          console.warn(`[PROXY-FAIL] Proxy ${i} ha fallito per ${baseUrl}: ${error.message}`);
+          if (news.length > 0) return news;
+        } catch (error) {
           continue; 
         }
       }
   }
-
-  console.error(`%c[RSS-FAIL] Nessun feed raggiungibile per: ${category}`, "color: #ef4444");
   return [];
 };
 
-/**
- * Parser per feed in formato Atom (alternativa a RSS)
- */
 const parseAtom = (doc: Document): RawNewsItem[] => {
     const entries = doc.querySelectorAll("entry");
     const news: RawNewsItem[] = [];
     entries.forEach((entry, index) => {
-        if (index > 15) return;
+        if (index > 10) return;
         news.push({
-            title: entry.querySelector("title")?.textContent || "",
+            title: entry.querySelector("title")?.textContent || "Senza Titolo",
             link: entry.querySelector("link")?.getAttribute("href") || "",
-            description: entry.querySelector("summary")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 400).trim() + "..." || 
-                         entry.querySelector("content")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 400).trim() + "..." || "",
+            description: entry.querySelector("summary")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || 
+                         entry.querySelector("content")?.textContent?.replace(/<[^>]*>?/gm, '').substring(0, 300).trim() || "",
             pubDate: entry.querySelector("updated")?.textContent || entry.querySelector("published")?.textContent || new Date().toISOString()
         });
     });
