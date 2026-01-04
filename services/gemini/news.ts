@@ -7,6 +7,7 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
   const rawNews = await fetchRawNewsFromRSS(categoryLabel);
   
   if (!rawNews || rawNews.length === 0) {
+    console.warn(`[News-Fetch] Nessuna notizia grezza trovata per ${categoryLabel}`);
     return [];
   }
 
@@ -34,12 +35,15 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
       contents: prompt,
     })); 
 
-    const articles = parseArticles(response.text || "[]", rawNews, categoryLabel);
+    const textResponse = response.text || "[]";
+    const articles = parseArticles(textResponse, rawNews, categoryLabel);
+    
     if (articles.length > 0) return articles;
-    throw new Error("Parsing fallito");
+    throw new Error("Parsing fallito o array vuoto");
 
-  } catch (error) {
-    console.warn("[Gemini] Fallback attivato a causa di errore AI");
+  } catch (error: any) {
+    console.error("[Gemini-News-Error]", error.message || error);
+    // Fallback: mostra le notizie originali se Gemini fallisce
     return rawNews.slice(0, 4).map(n => ({
         title: n.title,
         summary: n.description,
