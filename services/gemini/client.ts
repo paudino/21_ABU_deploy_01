@@ -43,19 +43,24 @@ export const geminiQueue = new GeminiQueue();
 
 /**
  * Inizializza il client Gemini.
- * Utilizza direttamente process.env.API_KEY come richiesto dalle linee guida.
+ * Accede in modo sicuro a process.env.API_KEY.
  */
 export const getClient = () => {
-  const apiKey = process.env.API_KEY;
+  let apiKey = "";
+  try {
+      // Accesso standard secondo linee guida
+      apiKey = process.env.API_KEY || "";
+  } catch (e) {
+      console.warn("[DIAGNOSTIC-GEMINI] Modulo 'process' non trovato, verifico alternative.");
+  }
   
-  // Log di diagnostica per la chiave (senza mostrarla tutta)
   if (!apiKey) {
-    console.error("[DIAGNOSTIC-GEMINI] ATTENZIONE: process.env.API_KEY è UNDEFINED. L'AI non funzionerà.");
+    console.error("[DIAGNOSTIC-GEMINI] ATTENZIONE: API_KEY non trovata. L'AI restituirà errori.");
   } else {
-    console.log(`[DIAGNOSTIC-GEMINI] API_KEY rilevata. Lunghezza: ${apiKey.length}. Inizia con: ${apiKey.substring(0, 4)}...`);
+    console.log(`[DIAGNOSTIC-GEMINI] Client inizializzato. API_KEY presente (L:${apiKey.length})`);
   }
 
-  return new GoogleGenAI({ apiKey: apiKey || "" });
+  return new GoogleGenAI({ apiKey });
 };
 
 export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 5000): Promise<T> => {
@@ -67,11 +72,11 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 50
       } catch (error: any) {
         lastError = error;
         if (error.message?.includes("API_KEY") || error.message?.includes("API key")) {
-          console.error("[DIAGNOSTIC-GEMINI] Errore critico API Key:", error.message);
+          console.error("[DIAGNOSTIC-GEMINI] API Key Error:", error.message);
           throw error;
         }
         if (i < retries) {
-          console.warn(`[DIAGNOSTIC-GEMINI] Tentativo ${i + 1} fallito. Errore: ${error.message}. Riprovo in ${delay}ms...`);
+          console.warn(`[DIAGNOSTIC-GEMINI] Tentativo ${i + 1} fallito: ${error.message}. Riprovo...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
           continue;
