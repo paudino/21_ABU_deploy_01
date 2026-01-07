@@ -32,7 +32,7 @@ class GeminiQueue {
     while (this.queue.length > 0) {
       const task = this.queue.shift();
       if (task) {
-          try { await task(); } catch (e) { console.error("[Queue] Error:", e); }
+          try { await task(); } catch (e) { console.error("[Gemini-Queue] Error:", e); }
       }
     }
     this.processing = false;
@@ -41,17 +41,14 @@ class GeminiQueue {
 
 export const geminiQueue = new GeminiQueue();
 
+/**
+ * Inizializza il client Gemini.
+ * Utilizza direttamente process.env.API_KEY come richiesto dalle linee guida.
+ */
 export const getClient = () => {
-  // Tentiamo di recuperare la chiave in modo sicuro da process.env
-  // Se process è undefined (ambienti browser puri senza shim), evitiamo il crash
-  let apiKey = '';
-  try {
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-      apiKey = process.env.API_KEY;
-    }
-  } catch (e) {}
-
-  return new GoogleGenAI({ apiKey: apiKey });
+  // Assicuriamo che apiKey sia almeno una stringa vuota per evitare errori di tipo
+  const apiKey = process.env.API_KEY || "";
+  return new GoogleGenAI({ apiKey });
 };
 
 export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 5000): Promise<T> => {
@@ -62,11 +59,12 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 50
         return await fn();
       } catch (error: any) {
         lastError = error;
-        // Se l'errore riguarda la chiave mancante, non riprovare
         if (error.message?.includes("API_KEY") || error.message?.includes("API key")) {
+          console.error("[Gemini] API Key mancante o non valida.");
           throw error;
         }
         if (i < retries) {
+          console.warn(`[Gemini] Tentativo ${i + 1} fallito, riprovo in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
           continue;
