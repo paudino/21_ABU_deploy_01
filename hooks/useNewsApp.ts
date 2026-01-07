@@ -5,8 +5,8 @@ import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
 
 export const useNewsApp = () => {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [activeCategoryId, setActiveCategoryId] = useState<string>(''); 
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [activeCategoryId, setActiveCategoryId] = useState<string>(DEFAULT_CATEGORIES[0].id); 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -18,23 +18,27 @@ export const useNewsApp = () => {
   
   const [notification, setNotification] = useState<string | null>(null);
 
-  const activeCategoryIdRef = useRef<string>('');
+  const activeCategoryIdRef = useRef<string>(DEFAULT_CATEGORIES[0].id);
   const initialLoadDone = useRef(false);
   const isFetchingRef = useRef(false);
 
   // Monitoraggio utente e auth
   useEffect(() => {
     const checkUser = async () => {
-        const user = await db.getCurrentUserProfile();
-        setCurrentUser(user);
-        if (user) {
-            const ids = await db.getUserFavoritesIds(user.id);
-            setFavoriteArticleIds(ids);
+        try {
+            const user = await db.getCurrentUserProfile();
+            setCurrentUser(user);
+            if (user) {
+                const ids = await db.getUserFavoritesIds(user.id);
+                setFavoriteArticleIds(ids);
+            }
+        } catch (e) {
+            console.warn("[Auth] Errore verifica utente iniziale, procedo come guest");
         }
     };
     checkUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const user = await db.getCurrentUserProfile();
             setCurrentUser(user);
@@ -59,26 +63,28 @@ export const useNewsApp = () => {
           try {
               let dbCategories = await db.getCategories(currentUser?.id);
               if (!dbCategories || dbCategories.length === 0) {
-                  await db.seedCategories();
-                  dbCategories = await db.getCategories(currentUser?.id);
+                  // Se non ci sono categorie nel DB, prova a fare il seed ma non bloccare
+                  db.seedCategories().catch(() => {});
+                  dbCategories = DEFAULT_CATEGORIES;
               }
-              if (!dbCategories || dbCategories.length === 0) dbCategories = DEFAULT_CATEGORIES;
               setCategories(dbCategories);
 
-              if (!activeCategoryIdRef.current && dbCategories.length > 0) {
-                  const firstCat = dbCategories[0];
+              // Se non abbiamo ancora caricato nulla, partiamo dalla prima categoria
+              if (!initialLoadDone.current) {
+                  const firstCat = dbCategories[0] || DEFAULT_CATEGORIES[0];
                   setActiveCategoryId(firstCat.id);
                   activeCategoryIdRef.current = firstCat.id;
-                  
-                  // Trigger caricamento iniziale notizie
-                  if (!initialLoadDone.current) {
-                      initialLoadDone.current = true;
-                      fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
-                  }
+                  initialLoadDone.current = true;
+                  fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
               }
           } catch (e) {
               console.error("Errore refresh categorie:", e);
-              setLoading(false);
+              // Fallback estremo: carica comunque le news se non è mai stato fatto
+              if (!initialLoadDone.current) {
+                  initialLoadDone.current = true;
+                  const firstCat = DEFAULT_CATEGORIES[0];
+                  fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
+              }
           }
       };
       refreshCategories();
@@ -95,19 +101,13 @@ export const useNewsApp = () => {
         }).catch(err => {
             console.error("Errore caricamento preferiti:", err);
             setLoading(false);
+            setNotification("Impossibile caricare i preferiti in questo momento.");
         });
-    } else if (!showFavoritesOnly && activeCategoryId && initialLoadDone.current) {
-        // Se non siamo nei preferiti, assicuriamoci che ci siano notizie caricate
-        if (articles.length === 0) {
-            const cat = categories.find(c => c.id === activeCategoryId);
-            if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, false);
-        }
     }
-  }, [showFavoritesOnly, currentUser, activeCategoryId]);
+  }, [showFavoritesOnly, currentUser]);
 
   // Caricamento Notizie
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    if (showFavoritesOnly && !forceAi) return; 
     if (isFetchingRef.current) return;
     
     isFetchingRef.current = true;
@@ -115,39 +115,38 @@ export const useNewsApp = () => {
     setNotification(null);
     
     try {
-        console.log(`[Fetch] Avvio recupero per "${catLabel}" (Force AI: ${forceAi})`);
+        console.log(`[Fetch] Avvio recupero per "${catLabel}"`);
         
+        // 1. Tenta la cache solo se non forziamo l'AI
         if (!forceAi) {
-            const cached = await db.getCachedArticles(catLabel);
-            if (cached && cached.length > 0) {
-                console.log(`[Fetch] Trovati ${cached.length} articoli in cache.`);
-                setArticles(cached); 
-                setLoading(false); 
-                isFetchingRef.current = false;
-                return; 
+            try {
+                const cached = await db.getCachedArticles(catLabel);
+                if (cached && cached.length > 0) {
+                    setArticles(cached); 
+                    setLoading(false); 
+                    isFetchingRef.current = false;
+                    return; 
+                }
+            } catch (e) {
+                console.warn("[Cache] Database non raggiungibile, procedo con AI...");
             }
         }
 
+        // 2. Fetch reale con Gemini
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
             const articlesWithNewTag = aiArticles.map(a => ({ ...a, isNew: true }));
             setArticles(articlesWithNewTag);
             
-            db.saveArticles(catLabel, aiArticles).then(saved => {
-                 setArticles(current => {
-                    const idMap = new Map<string, string>();
-                    saved.forEach(s => { if (s.url && s.id) idMap.set(s.url, s.id); });
-                    return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
-                 });
-            });
-
+            // Tenta di salvare nel DB in background
+            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[DB] Errore salvataggio news:", e));
         } else {
             setNotification("Nessuna notizia trovata in questo momento. Riprova più tardi.");
         }
     } catch (error: any) {
         console.error("[Fetch-Error]", error);
-        setNotification(`Errore: ${error.message || 'Servizio momentaneamente non disponibile'}`);
+        setNotification(`Spiacenti, il servizio news è momentaneamente indisponibile.`);
     } finally {
         setLoading(false);
         isFetchingRef.current = false;
@@ -162,11 +161,11 @@ export const useNewsApp = () => {
     
     if (showFavoritesOnly) {
         setShowFavoritesOnly(false);
-    } else {
-        setArticles([]); 
-        const cat = categories.find(c => c.id === catId);
-        if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false); 
     }
+    
+    setArticles([]); 
+    const cat = categories.find(c => c.id === catId);
+    if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false); 
   };
 
   const handleRefresh = () => {
@@ -184,7 +183,6 @@ export const useNewsApp = () => {
         if (updatedArticle.url && a.url === updatedArticle.url) return { ...updatedArticle, id: a.id || updatedArticle.id };
         return a;
     }));
-    // Sincronizza anche l'articolo selezionato se è lo stesso
     if (selectedArticle && (selectedArticle.id === updatedArticle.id || selectedArticle.url === updatedArticle.url)) {
         setSelectedArticle(updatedArticle);
     }
@@ -192,14 +190,21 @@ export const useNewsApp = () => {
 
   const handleToggleFavorite = async (article: Article) => {
     if (!currentUser) { setShowLoginModal(true); return; }
+    
     let articleId = article.id;
     let articleToUpdate = { ...article };
 
+    // Se l'articolo non ha un ID (non è nel DB), salviamolo prima
     if (!articleId) {
-        const saved = await db.saveArticles(article.category || 'Generale', [article]);
-        if (saved && saved.length > 0) {
-            articleId = saved[0].id;
-            articleToUpdate = saved[0];
+        try {
+            const saved = await db.saveArticles(article.category || 'Generale', [article]);
+            if (saved && saved.length > 0) {
+                articleId = saved[0].id;
+                articleToUpdate = saved[0];
+            }
+        } catch (e) {
+            setNotification("Impossibile salvare nei preferiti: errore database.");
+            return;
         }
     }
     
@@ -207,18 +212,18 @@ export const useNewsApp = () => {
 
     const isCurrentlyFav = favoriteArticleIds.has(articleId);
     
-    // Aggiornamento ottimistico UI
-    if (isCurrentlyFav) {
-        setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(articleId!); return n; });
-        if (showFavoritesOnly) setArticles(prev => prev.filter(a => a.id !== articleId));
-        await db.removeFavorite(articleId, currentUser.id);
-    } else {
-        setFavoriteArticleIds(prev => new Set(prev).add(articleId!));
-        await db.addFavorite(articleId, currentUser.id);
+    try {
+        if (isCurrentlyFav) {
+            setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(articleId!); return n; });
+            await db.removeFavorite(articleId, currentUser.id);
+        } else {
+            setFavoriteArticleIds(prev => new Set(prev).add(articleId!));
+            await db.addFavorite(articleId, currentUser.id);
+        }
+        handleArticleUpdate(articleToUpdate);
+    } catch (e) {
+        console.error("Errore toggle preferito:", e);
     }
-
-    // Fondamentale: aggiorna l'articolo nel set di dati e nella selezione
-    handleArticleUpdate(articleToUpdate);
   };
 
   return {
