@@ -38,15 +38,15 @@ const RSS_FEEDS: Record<string, string[]> = {
 
 const EMERGENCY_FALLBACK_NEWS: RawNewsItem[] = [
   {
-    title: "Le energie rinnovabili superano i fossili",
+    title: "Innovazione sostenibile: scoperte nuove frontiere",
     link: "https://www.greenme.it",
-    description: "Un traguardo storico per il pianeta: per la prima volta le fonti pulite guidano la produzione globale di energia.",
+    description: "La scienza continua a fare passi da gigante verso un futuro più pulito e luminoso.",
     pubDate: new Date().toISOString()
   },
   {
-    title: "Nuova cura promettente per la salute del cuore",
-    link: "https://www.fondazioneveronesi.it",
-    description: "I ricercatori hanno identificato una molecola in grado di rigenerare i tessuti cardiaci danneggiati.",
+    title: "Solidarietà globale: uniti per il bene comune",
+    link: "https://www.goodnewsnetwork.org",
+    description: "Storie di persone che fanno la differenza ogni giorno con piccoli e grandi gesti.",
     pubDate: new Date().toISOString()
   }
 ];
@@ -58,7 +58,7 @@ export interface RawNewsItem {
   pubDate: string;
 }
 
-const fetchWithTimeout = async (url: string, options: any = {}, timeout = 6000) => {
+const fetchWithTimeout = async (url: string, options: any = {}, timeout = 8000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -70,6 +70,22 @@ const fetchWithTimeout = async (url: string, options: any = {}, timeout = 6000) 
 
 const PROXY_STRATEGIES = [
   {
+    name: "CorsProxy.io",
+    fn: async (url: string) => {
+      const res = await fetchWithTimeout(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.text();
+    }
+  },
+  {
+    name: "YACDN",
+    fn: async (url: string) => {
+      const res = await fetchWithTimeout(`https://yacdn.org/proxy/${url}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.text();
+    }
+  },
+  {
     name: "AllOrigins",
     fn: async (url: string) => {
       const res = await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&disableCache=true`);
@@ -77,58 +93,45 @@ const PROXY_STRATEGIES = [
       const data = await res.json();
       return data.contents;
     }
-  },
-  {
-    name: "CorsProxy.io",
-    fn: async (url: string) => {
-      const res = await fetchWithTimeout(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
-    }
   }
 ];
 
 export const fetchRawNewsFromRSS = async (category: string): Promise<RawNewsItem[]> => {
-  console.log(`[DIAGNOSTIC-RSS] Inizio recupero per categoria: ${category}`);
+  console.log(`[DIAGNOSTIC-RSS] Inizio recupero per: ${category}`);
   const urls = RSS_FEEDS[category] || RSS_FEEDS['Generale'];
   const shuffledUrls = [...urls].sort(() => Math.random() - 0.5);
 
   for (const baseUrl of shuffledUrls) {
       for (const strategy of PROXY_STRATEGIES) {
         try {
-          console.log(`[DIAGNOSTIC-RSS] Tentativo con ${strategy.name} su URL: ${baseUrl}`);
+          console.log(`[DIAGNOSTIC-RSS] Tentativo con ${strategy.name} su: ${baseUrl}`);
           const xmlText = await strategy.fn(baseUrl);
           
-          if (!xmlText) {
-            console.warn(`[DIAGNOSTIC-RSS] Risposta vuota da ${strategy.name}`);
+          if (!xmlText || xmlText.length < 50) {
+            console.warn(`[DIAGNOSTIC-RSS] Risposta troppo corta da ${strategy.name}`);
             continue;
           }
-
-          console.log(`[DIAGNOSTIC-RSS] Ricevuti ${xmlText.length} caratteri di XML.`);
 
           const parser = new DOMParser();
           let xmlDoc = parser.parseFromString(xmlText, "text/xml");
           
           if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
-             console.warn("[DIAGNOSTIC-RSS] Errore parsing XML standard, provo come application/xml");
              xmlDoc = parser.parseFromString(xmlText, "application/xml");
           }
 
           const results = parseXmlResponse(xmlDoc);
           if (results.length > 0) {
-              console.log(`[DIAGNOSTIC-RSS] SUCCESS: Recuperate ${results.length} notizie da ${baseUrl}`);
+              console.log(`[DIAGNOSTIC-RSS] SUCCESS: ${results.length} news da ${strategy.name}`);
               return results;
-          } else {
-              console.warn(`[DIAGNOSTIC-RSS] Nessun item trovato nell'XML di ${baseUrl}`);
           }
         } catch (error: any) {
-          console.warn(`[DIAGNOSTIC-RSS] Fallimento ${strategy.name} per ${baseUrl}:`, error.message);
+          console.warn(`[DIAGNOSTIC-RSS] Fallimento ${strategy.name}:`, error.message);
           continue; 
         }
       }
   }
   
-  console.error("[DIAGNOSTIC-RSS] Tutte le strategie RSS sono fallite per questa categoria.");
+  console.error("[DIAGNOSTIC-RSS] Tutte le strategie fallite. Fallback attivo.");
   return EMERGENCY_FALLBACK_NEWS;
 };
 
