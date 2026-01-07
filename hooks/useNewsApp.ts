@@ -21,33 +21,37 @@ export const useNewsApp = () => {
   const initialLoadTriggered = useRef(false);
   const isFetchingRef = useRef(false);
 
-  // 1. CARICAMENTO IMMEDIATO (Bypass DB)
+  // 1. CARICAMENTO IMMEDIATO
   useEffect(() => {
     if (!initialLoadTriggered.current) {
-        console.log("[App] Avvio caricamento iniziale news...");
+        console.log("[DIAGNOSTIC-APP] Boot: Avvio caricamento iniziale.");
         initialLoadTriggered.current = true;
         const firstCat = DEFAULT_CATEGORIES[0];
         fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
     }
   }, []);
 
-  // 2. MONITORAGGIO AUTH E PREFERITI
+  // 2. MONITORAGGIO AUTH
   useEffect(() => {
     const checkUser = async () => {
         try {
             const user = await db.getCurrentUserProfile();
-            setCurrentUser(user);
             if (user) {
+                console.log("[DIAGNOSTIC-APP] Utente loggato rilevato:", user.username);
+                setCurrentUser(user);
                 const ids = await db.getUserFavoritesIds(user.id);
                 setFavoriteArticleIds(ids);
+            } else {
+                console.log("[DIAGNOSTIC-APP] Sessione ospite.");
             }
         } catch (e) {
-            console.warn("[Auth] Database non ancora pronto o non configurato.");
+            console.warn("[DIAGNOSTIC-APP] Fallimento recupero profilo utente.");
         }
     };
     checkUser();
 
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
+        console.log("[DIAGNOSTIC-APP] Auth Event:", event);
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const user = await db.getCurrentUserProfile();
             setCurrentUser(user);
@@ -66,60 +70,53 @@ export const useNewsApp = () => {
     return () => { subscription.unsubscribe(); };
   }, []);
 
-  // 3. SINCRONIZZAZIONE CATEGORIE DB (Background)
-  useEffect(() => {
-      const syncCategories = async () => {
-          try {
-              let dbCategories = await db.getCategories(currentUser?.id);
-              if (dbCategories && dbCategories.length > 0) {
-                  setCategories(dbCategories);
-              } else {
-                  db.seedCategories().catch(() => {});
-              }
-          } catch (e) {
-              console.warn("[DB] Errore sync categorie, uso default.");
-          }
-      };
-      syncCategories();
-  }, [currentUser]);
-
   // Caricamento Notizie
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    if (isFetchingRef.current) return;
+    if (isFetchingRef.current) {
+        console.log("[DIAGNOSTIC-APP] Fetch ignorato: operazione già in corso.");
+        return;
+    }
     
     isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
     
+    console.log(`[DIAGNOSTIC-APP] Richiesta news per categoria: ${catLabel} (ForceAI: ${forceAi})`);
+    
     try {
-        console.log(`[Fetch] Caricamento per: ${catLabel}`);
-        
         if (!forceAi) {
             try {
                 const cached = await db.getCachedArticles(catLabel);
                 if (cached && cached.length > 0) {
+                    console.log(`[DIAGNOSTIC-APP] Trovati ${cached.length} articoli nella cache locale.`);
                     setArticles(cached); 
                     setLoading(false); 
                     isFetchingRef.current = false;
                     return; 
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn("[DIAGNOSTIC-APP] Errore lettura cache locale.");
+            }
         }
 
+        console.log("[DIAGNOSTIC-APP] Avvio fetch AI...");
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
+            console.log(`[DIAGNOSTIC-APP] Caricamento di ${aiArticles.length} articoli AI.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-            db.saveArticles(catLabel, aiArticles).catch(() => {});
+            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[DIAGNOSTIC-APP] Errore salvataggio cache:", e));
         } else {
+            console.warn("[DIAGNOSTIC-APP] Nessun articolo ricevuto dall'AI.");
             setNotification("Nessuna notizia trovata in questo momento.");
         }
     } catch (error: any) {
-        console.error("[Fetch-Error]", error);
-        setNotification("Il servizio news ha riscontrato un problema. Riprova più tardi.");
+        console.error("[DIAGNOSTIC-APP] Errore durante il ciclo di fetch:", error.message);
+        setNotification("Il servizio news ha riscontrato un problema tecnico.");
     } finally {
         setLoading(false);
         isFetchingRef.current = false;
+        console.log("[DIAGNOSTIC-APP] Fine operazione di caricamento.");
     }
   };
 
@@ -167,6 +164,7 @@ export const useNewsApp = () => {
                 articleToUpdate = saved[0];
             }
         } catch (e) {
+            console.error("[DIAGNOSTIC-APP] Errore salvataggio articolo per preferiti:", e);
             setNotification("Errore nel salvataggio preferiti.");
             return;
         }
