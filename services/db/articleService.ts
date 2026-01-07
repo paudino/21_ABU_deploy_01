@@ -8,38 +8,31 @@ export const cleanupOldArticles = async (): Promise<void> => {
 
 export const getCachedArticles = async (categoryLabel: string): Promise<Article[]> => {
     const cleanLabel = categoryLabel ? categoryLabel.trim() : '';
-    // Cerchiamo articoli che corrispondano esattamente o quasi alla categoria
-    const searchTerm = cleanLabel;
-    
-    console.log(`[DB] getCachedArticles: Cerco articoli per "${categoryLabel}"`);
+    console.log(`[DIAGNOSTIC-DB] getCachedArticles START per "${cleanLabel}"`);
 
     try {
-        let { data, error } = await supabase
+        // Query semplificata per massimizzare la velocità e la compatibilità
+        // Evitiamo join complessi in questa fase critica
+        const { data, error } = await supabase
           .from('articles')
-          .select('*, likes(count), dislikes(count)')
-          .ilike('category', searchTerm) 
+          .select('*')
+          .ilike('category', cleanLabel) 
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(10);
 
         if (error) {
-            console.warn("[DB] Query completa fallita, provo fallback semplice...", error.message);
-            const fallback = await supabase
-                .from('articles')
-                .select('*')
-                .ilike('category', searchTerm)
-                .order('created_at', { ascending: false })
-                .limit(50);
-            
-            data = fallback.data;
-            error = fallback.error;
+            console.error("[DIAGNOSTIC-DB] Errore Supabase durante la lettura cache:", error.message);
+            return [];
         }
 
-        if (error) {
-            console.error("[DB] Errore Query:", error.message);
+        if (!data || data.length === 0) {
+            console.log("[DIAGNOSTIC-DB] Nessun articolo trovato in cache locale.");
             return [];
         }
         
-        return (data || []).map((a: any) => ({
+        console.log(`[DIAGNOSTIC-DB] SUCCESS: Trovati ${data.length} articoli in cache.`);
+        
+        return data.map((a: any) => ({
             id: a.id,
             title: a.title,
             summary: a.summary,
@@ -49,13 +42,13 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
             category: a.category,
             imageUrl: a.image_url || '',
             audioBase64: a.audio_base64 || '',
-            sentimentScore: a.sentiment_score,
-            likeCount: a.likes?.[0]?.count || 0,
-            dislikeCount: a.dislikes?.[0]?.count || 0
+            sentimentScore: a.sentiment_score || 0.8,
+            likeCount: 0, // Caricati a parte o ignorati per velocità in cache
+            dislikeCount: 0
         }));
 
     } catch (e: any) {
-        console.error("[DB] Eccezione fetch cache:", e);
+        console.error("[DIAGNOSTIC-DB] Eccezione fatale durante fetch cache:", e.message);
         return [];
     }
 };
@@ -63,17 +56,16 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
 export const saveArticles = async (categoryLabel: string, articles: Article[]): Promise<Article[]> => {
     if (!articles || articles.length === 0) return [];
     
+    console.log(`[DIAGNOSTIC-DB] Salvataggio di ${articles.length} articoli per cache futuro.`);
     const savedArticles: Article[] = [];
     const cleanCategory = (categoryLabel || 'Generale').trim();
 
     for (const article of articles) {
         if (!article.url) continue;
 
-        const finalCategory = article.category || cleanCategory;
-
         const row = {
             url: article.url, 
-            category: finalCategory,
+            category: article.category || cleanCategory,
             title: article.title,
             summary: article.summary,
             source: article.source,
@@ -93,14 +85,11 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             if (data) {
                 savedArticles.push({
                     ...article,
-                    id: data.id,
-                    category: data.category,
-                    imageUrl: data.image_url || article.imageUrl,
-                    audioBase64: data.audio_base64 || article.audioBase64
+                    id: data.id
                 });
             }
         } catch (e) {
-            console.error("[DB] Err save:", e);
+            console.warn("[DIAGNOSTIC-DB] Upsert fallito per un articolo:", article.url);
         }
     }
     
