@@ -5,12 +5,16 @@ import { fetchRawNewsFromRSS, RawNewsItem } from '../newsFetcher';
 import { GenerateContentResponse } from "@google/genai";
 
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
+  console.log(`[DIAGNOSTIC-GEMINI] Avvio fetchPositiveNews per ${categoryLabel}`);
+  
   const rawNews = await fetchRawNewsFromRSS(categoryLabel);
   
   if (!rawNews || rawNews.length === 0) {
-    console.warn(`[News-Fetch] Nessuna notizia grezza trovata per ${categoryLabel}`);
+    console.warn(`[DIAGNOSTIC-GEMINI] Nessuna notizia grezza da elaborare per ${categoryLabel}`);
     return [];
   }
+
+  console.log(`[DIAGNOSTIC-GEMINI] Passo ${rawNews.length} notizie grezze a Gemini per l'analisi.`);
 
   try {
     const ai = getClient();
@@ -31,21 +35,32 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
       ${newsListString}
     `;
 
-    // Fix: Add explicit type generic to withRetry to ensure the response is correctly typed as GenerateContentResponse
+    console.time(`gemini-request-${categoryLabel}`);
     const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
     })); 
+    console.timeEnd(`gemini-request-${categoryLabel}`);
 
-    const textResponse = response.text || "[]";
+    const textResponse = response.text;
+    if (!textResponse) {
+        console.error("[DIAGNOSTIC-GEMINI] Risposta Gemini vuota o indefinita.");
+        throw new Error("Risposta AI non valida");
+    }
+
+    console.log(`[DIAGNOSTIC-GEMINI] Risposta AI ricevuta. Lunghezza: ${textResponse.length} caratteri.`);
+
     const articles = parseArticles(textResponse, rawNews, categoryLabel);
+    console.log(`[DIAGNOSTIC-GEMINI] Parsing completato. Articoli generati: ${articles.length}`);
     
     if (articles.length > 0) return articles;
     throw new Error("Parsing fallito o array vuoto");
 
   } catch (error: any) {
-    console.error("[Gemini-News-Error]", error.message || error);
+    console.error("[DIAGNOSTIC-GEMINI] ERRORE durante la chiamata AI:", error.message || error);
+    
     // Fallback: mostra le notizie originali se Gemini fallisce
+    console.warn("[DIAGNOSTIC-GEMINI] Utilizzo fallback: converto notizie grezze in articoli standard.");
     return rawNews.slice(0, 4).map(n => ({
         title: n.title,
         summary: n.description,
@@ -74,7 +89,8 @@ const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: stri
                 sentimentScore: choice.sentimentScore || 0.9
             };
         });
-    } catch {
+    } catch (e: any) {
+        console.error("[DIAGNOSTIC-GEMINI] Errore nel parseArticles JSON:", e.message);
         return [];
     }
 };
