@@ -46,9 +46,16 @@ export const geminiQueue = new GeminiQueue();
  * Utilizza direttamente process.env.API_KEY come richiesto dalle linee guida.
  */
 export const getClient = () => {
-  // Assicuriamo che apiKey sia almeno una stringa vuota per evitare errori di tipo
-  const apiKey = process.env.API_KEY || "";
-  return new GoogleGenAI({ apiKey });
+  const apiKey = process.env.API_KEY;
+  
+  // Log di diagnostica per la chiave (senza mostrarla tutta)
+  if (!apiKey) {
+    console.error("[DIAGNOSTIC-GEMINI] ATTENZIONE: process.env.API_KEY è UNDEFINED. L'AI non funzionerà.");
+  } else {
+    console.log(`[DIAGNOSTIC-GEMINI] API_KEY rilevata. Lunghezza: ${apiKey.length}. Inizia con: ${apiKey.substring(0, 4)}...`);
+  }
+
+  return new GoogleGenAI({ apiKey: apiKey || "" });
 };
 
 export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 5000): Promise<T> => {
@@ -60,11 +67,11 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 50
       } catch (error: any) {
         lastError = error;
         if (error.message?.includes("API_KEY") || error.message?.includes("API key")) {
-          console.error("[Gemini] API Key mancante o non valida.");
+          console.error("[DIAGNOSTIC-GEMINI] Errore critico API Key:", error.message);
           throw error;
         }
         if (i < retries) {
-          console.warn(`[Gemini] Tentativo ${i + 1} fallito, riprovo in ${delay}ms...`);
+          console.warn(`[DIAGNOSTIC-GEMINI] Tentativo ${i + 1} fallito. Errore: ${error.message}. Riprovo in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
           continue;
