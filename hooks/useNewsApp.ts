@@ -35,17 +35,20 @@ export const useNewsApp = () => {
   useEffect(() => {
     const checkUser = async () => {
         try {
-            const user = await db.getCurrentUserProfile();
+            const { data: { user } } = await (supabase.auth as any).getUser();
             if (user) {
-                console.log("[DIAGNOSTIC-APP] Utente loggato rilevato:", user.username);
-                setCurrentUser(user);
-                const ids = await db.getUserFavoritesIds(user.id);
-                setFavoriteArticleIds(ids);
+                console.log("[DIAGNOSTIC-APP] Utente loggato rilevato:", user.email);
+                const profile = await db.getCurrentUserProfile();
+                setCurrentUser(profile);
+                if (profile) {
+                    const ids = await db.getUserFavoritesIds(profile.id);
+                    setFavoriteArticleIds(ids);
+                }
             } else {
                 console.log("[DIAGNOSTIC-APP] Sessione ospite.");
             }
         } catch (e) {
-            console.warn("[DIAGNOSTIC-APP] Fallimento recupero profilo utente.");
+            console.warn("[DIAGNOSTIC-APP] Errore verifica utente:", e);
         }
     };
     checkUser();
@@ -81,48 +84,53 @@ export const useNewsApp = () => {
     setLoading(true);
     setNotification(null);
     
-    console.log(`[DIAGNOSTIC-APP] Richiesta news per categoria: ${catLabel} (ForceAI: ${forceAi})`);
+    console.log(`[DIAGNOSTIC-APP] STEP 1: Richiesta news per "${catLabel}" (ForceAI: ${forceAi})`);
     
     try {
         if (!forceAi) {
-            try {
-                const cached = await db.getCachedArticles(catLabel);
-                if (cached && cached.length > 0) {
-                    console.log(`[DIAGNOSTIC-APP] Trovati ${cached.length} articoli nella cache locale.`);
-                    setArticles(cached); 
-                    setLoading(false); 
-                    isFetchingRef.current = false;
-                    return; 
-                }
-            } catch (e) {
-                console.warn("[DIAGNOSTIC-APP] Errore lettura cache locale.");
+            console.log("[DIAGNOSTIC-APP] STEP 2: Controllo cache database...");
+            const cached = await db.getCachedArticles(catLabel);
+            if (cached && cached.length > 0) {
+                console.log(`[DIAGNOSTIC-APP] STEP 3: Utilizzo ${cached.length} articoli dalla cache.`);
+                setArticles(cached); 
+                setLoading(false); 
+                isFetchingRef.current = false;
+                return; 
             }
+            console.log("[DIAGNOSTIC-APP] STEP 2b: Cache vuota o non disponibile.");
         }
 
-        console.log("[DIAGNOSTIC-APP] Avvio fetch AI...");
+        console.log("[DIAGNOSTIC-APP] STEP 4: Avvio fetch tramite Gemini AI...");
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
-            console.log(`[DIAGNOSTIC-APP] Caricamento di ${aiArticles.length} articoli AI.`);
+            console.log(`[DIAGNOSTIC-APP] STEP 5: Ricevuti ${aiArticles.length} articoli dall'AI.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[DIAGNOSTIC-APP] Errore salvataggio cache:", e));
+            
+            // Salvataggio asincrono in cache
+            db.saveArticles(catLabel, aiArticles).then(() => {
+                console.log("[DIAGNOSTIC-APP] STEP 6: Cache aggiornata con successo.");
+            }).catch(e => {
+                console.warn("[DIAGNOSTIC-APP] STEP 6 Error: Salvataggio cache fallito.");
+            });
         } else {
-            console.warn("[DIAGNOSTIC-APP] Nessun articolo ricevuto dall'AI.");
-            setNotification("Nessuna notizia trovata in questo momento.");
+            console.warn("[DIAGNOSTIC-APP] STEP 5 Error: Nessun articolo ricevuto.");
+            setNotification("Spiacenti, non abbiamo trovato notizie positive per questa categoria al momento.");
         }
     } catch (error: any) {
-        console.error("[DIAGNOSTIC-APP] Errore durante il ciclo di fetch:", error.message);
-        setNotification("Il servizio news ha riscontrato un problema tecnico.");
+        console.error("[DIAGNOSTIC-APP] FATAL ERROR nel ciclo di fetch:", error.message);
+        setNotification("Il servizio news ha riscontrato un problema tecnico. Riprova più tardi.");
     } finally {
         setLoading(false);
         isFetchingRef.current = false;
-        console.log("[DIAGNOSTIC-APP] Fine operazione di caricamento.");
+        console.log("[DIAGNOSTIC-APP] Operazione terminata.");
     }
   };
 
   const handleCategoryChange = (catId: string) => {
     if (activeCategoryId === catId && !showFavoritesOnly) return;
     
+    console.log(`[DIAGNOSTIC-APP] Cambio categoria -> ${catId}`);
     setActiveCategoryId(catId);
     setShowFavoritesOnly(false);
     setArticles([]); 
@@ -164,8 +172,7 @@ export const useNewsApp = () => {
                 articleToUpdate = saved[0];
             }
         } catch (e) {
-            console.error("[DIAGNOSTIC-APP] Errore salvataggio articolo per preferiti:", e);
-            setNotification("Errore nel salvataggio preferiti.");
+            console.error("[DIAGNOSTIC-APP] Errore salvataggio per preferiti:", e);
             return;
         }
     }
@@ -193,7 +200,13 @@ export const useNewsApp = () => {
     loading, selectedArticle, showLoginModal, showFavoritesOnly, currentUser, favoriteArticleIds, notification,
     setActiveCategoryId: handleCategoryChange, setSelectedArticle, setShowLoginModal, setShowFavoritesOnly,
     handleLogin: async () => {}, 
-    handleLogout: async () => { setCurrentUser(null); setFavoriteArticleIds(new Set()); setShowFavoritesOnly(false); await db.signOut(); },
+    handleLogout: async () => { 
+        console.log("[DIAGNOSTIC-APP] Logout eseguito.");
+        setCurrentUser(null); 
+        setFavoriteArticleIds(new Set()); 
+        setShowFavoritesOnly(false); 
+        await db.signOut(); 
+    },
     handleAddCategory: async (l: string) => {
         if (!currentUser) { setShowLoginModal(true); return; }
         const n = await db.addCategory(l, `${l} notizie positive`, currentUser.id);
