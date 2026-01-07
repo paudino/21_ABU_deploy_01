@@ -2,6 +2,7 @@
 import { getClient, withRetry } from './client';
 import { Article } from '../../types';
 import { fetchRawNewsFromRSS, RawNewsItem } from '../newsFetcher';
+import { GenerateContentResponse } from "@google/genai";
 
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
   const rawNews = await fetchRawNewsFromRSS(categoryLabel);
@@ -30,7 +31,8 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
       ${newsListString}
     `;
 
-    const response = await withRetry(() => ai.models.generateContent({
+    // Fix: Add explicit type generic to withRetry to ensure the response is correctly typed as GenerateContentResponse
+    const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
     })); 
