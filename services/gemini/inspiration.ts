@@ -1,6 +1,7 @@
 
 import { getClient, withRetry } from './client';
 import { Quote } from '../../types';
+import { GenerateContentResponse } from "@google/genai";
 
 /**
  * Recupera una citazione FAMOSA e REALE.
@@ -8,7 +9,8 @@ import { Quote } from '../../types';
 export const generateInspirationalQuote = async (): Promise<Quote | null> => {
     const ai = getClient();
     try {
-      const response = await withRetry(() => ai.models.generateContent({
+      // Fix: Add explicit type generic to withRetry to ensure the response is correctly typed as GenerateContentResponse
+      const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `RECUPERA DALLA STORIA una citazione REALE, famosa e ispirante. 
         DEVE essere una citazione esistente di un autore noto (es. filosofi, scienziati, leader storici).
@@ -40,7 +42,8 @@ export const generateInspirationalQuote = async (): Promise<Quote | null> => {
 export const generateGoodDeed = async (): Promise<string | null> => {
     const ai = getClient();
     try {
-        const response = await withRetry(() => ai.models.generateContent({
+        // Fix: Add explicit type generic to withRetry to ensure the response is correctly typed as GenerateContentResponse
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: `Suggerisci un piccolo "Gesto di Gentilezza" concreto e reale che una persona può fare oggi.
             Evita suggerimenti astratti. Sii pratico (es. "Scrivi a un amico che non senti da tempo").
