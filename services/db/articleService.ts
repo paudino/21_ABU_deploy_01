@@ -2,82 +2,71 @@
 import { supabase } from '../supabaseClient';
 import { Article } from '../../types';
 
-export const cleanupOldArticles = async (): Promise<void> => {
-    try { await supabase.rpc('cleanup_old_articles'); } catch (e) {}
-};
-
 export const getCachedArticles = async (categoryLabel: string, categoryId?: string): Promise<Article[]> => {
-    const cleanLabel = categoryLabel ? categoryLabel.trim() : '';
-    const cleanId = categoryId ? categoryId.trim() : '';
+    const cleanLabel = (categoryLabel || '').trim();
+    const cleanId = (categoryId || '').trim();
     
-    console.log(`[DB-Service] Ricerca articoli per - Label: "${cleanLabel}", ID: "${cleanId}"`);
+    console.log(`[DB-Service] Tentativo fetch: Label="${cleanLabel}", ID="${cleanId}"`);
 
     try {
         let query = supabase.from('articles').select('*');
 
-        // Costruiamo un filtro OR robusto che copra tutte le possibilità di salvataggio
-        const filterParts = [];
+        // Costruzione filtro OR senza virgolette (encoding standard Supabase)
+        // Se cleanLabel o cleanId contengono spazi, Supabase li gestisce automaticamente senza virgolette manuali
+        const filters = [];
         if (cleanLabel) {
-            filterParts.push(`category.ilike.%${cleanLabel}%`);
-            filterParts.push(`category.eq."${cleanLabel}"`);
+            filters.push(`category.ilike.%${cleanLabel}%`);
+            filters.push(`category.eq.${cleanLabel}`);
         }
         if (cleanId) {
-            filterParts.push(`category.eq."${cleanId}"`);
+            filters.push(`category.eq.${cleanId}`);
         }
 
-        if (filterParts.length > 0) {
-            query = query.or(filterParts.join(','));
+        if (filters.length > 0) {
+            query = query.or(filters.join(','));
         }
 
-        const { data, error } = await query
+        const { data, error, status } = await query
             .order('created_at', { ascending: false })
             .limit(40);
 
         if (error) {
-            console.error("[DB-Service] Errore query Supabase:", error.message);
+            console.error(`[DB-Service] Errore Supabase (Status ${status}):`, error.message, error.details);
+            // Se l'errore è legato a RLS o permessi, lo vedremo qui
             return [];
         }
 
         if (!data || data.length === 0) {
-            console.warn(`[DB-Service] Nessun articolo trovato per "${cleanLabel}/${cleanId}". Verificare RLS o nomi tabelle.`);
+            console.warn(`[DB-Service] DB risposto con 0 record per ${cleanLabel}. Verificare RLS su Supabase.`);
             return [];
         }
         
-        console.log(`[DB-Service] Successo: Trovati ${data.length} articoli.`);
+        console.log(`[DB-Service] Successo: Ricevuti ${data.length} articoli.`);
         
-        // Mapping ultra-robusto per prevenire crash da dati nulli/inaspettati
         return data.map((a: any) => {
             try {
-                // Gestione flessibile della data
-                let formattedDate = a.published_date || a.date;
-                if (!formattedDate && a.created_at) {
-                    formattedDate = new Date(a.created_at).toISOString().split('T')[0];
-                } else if (!formattedDate) {
-                    formattedDate = new Date().toISOString().split('T')[0];
-                }
-
+                const dateVal = a.published_date || a.date || a.created_at || new Date().toISOString();
                 return {
                     id: a.id,
                     title: String(a.title || 'Senza Titolo'),
-                    summary: String(a.summary || 'Nessun riassunto disponibile.'),
-                    source: String(a.source || 'Fonte Sconosciuta'),
+                    summary: String(a.summary || 'Nessun riassunto.'),
+                    source: String(a.source || 'Fonte'),
                     url: a.url,
-                    date: formattedDate,
-                    category: a.category || cleanLabel,
+                    date: dateVal.split('T')[0],
+                    category: a.category,
                     imageUrl: a.image_url || '',
-                    audioBase64: a.audio_base64 || '',
-                    sentimentScore: Number(a.sentiment_score || 0.85),
+                    audioBase64: a.audio_base_64 || '',
+                    sentimentScore: Number(a.sentiment_score || 0.8),
                     likeCount: 0,
                     dislikeCount: 0
                 };
             } catch (err) {
-                console.error("[DB-Service] Errore mapping record:", a.id, err);
                 return null;
             }
         }).filter(Boolean) as Article[];
 
     } catch (e: any) {
-        console.error("[DB-Service] Eccezione fatale nel recupero cache:", e.message);
+        console.error("[DB-Service] Eccezione critica:", e.message);
         return [];
     }
 };
@@ -85,41 +74,27 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
 export const saveArticles = async (categoryLabel: string, articles: Article[]): Promise<Article[]> => {
     if (!articles || articles.length === 0) return [];
     
-    console.log(`[DB-Service] Salvataggio di ${articles.length} articoli per ${categoryLabel}.`);
-    const savedArticles: Article[] = [];
+    const rows = articles.map(a => ({
+        url: a.url, 
+        category: a.category || categoryLabel,
+        title: a.title,
+        summary: a.summary,
+        source: a.source,
+        published_date: a.date, 
+        sentiment_score: a.sentimentScore,
+        image_url: a.imageUrl || null,
+        // Fix: Changed a.audio_base64 to a.audioBase64 to correctly access the property defined in the Article interface
+        audio_base_64: a.audioBase64 || null
+    }));
 
-    for (const article of articles) {
-        if (!article.url) continue;
-
-        // Salviamo usando sia la Label che l'ID per coerenza futura
-        const row = {
-            url: article.url, 
-            category: article.category || categoryLabel,
-            title: article.title,
-            summary: article.summary,
-            source: article.source,
-            published_date: article.date, 
-            sentiment_score: article.sentimentScore,
-            image_url: article.imageUrl || null,
-            audio_base64: article.audioBase64 || null
-        };
-
-        try {
-            const { data, error } = await supabase
-                .from('articles')
-                .upsert(row, { onConflict: 'url' })
-                .select()
-                .single();
-
-            if (data) {
-                savedArticles.push({ ...article, id: data.id });
-            }
-        } catch (e) {
-            console.warn("[DB-Service] Upsert fallito per:", article.url);
-        }
+    try {
+        const { data, error } = await supabase.from('articles').upsert(rows, { onConflict: 'url' }).select();
+        if (error) throw error;
+        return (data || []).map((d: any, i: number) => ({ ...articles[i], id: d.id }));
+    } catch (e) {
+        console.warn("[DB-Service] Errore salvataggio:", e);
+        return articles;
     }
-    
-    return savedArticles;
 };
 
 export const updateArticleImage = async (articleUrl: string, imageUrl: string): Promise<void> => {
@@ -127,5 +102,5 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 };
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
-    try { await supabase.from('articles').update({ audio_base64: audioBase64 }).eq('url', articleUrl); } catch (e) {}
+    try { await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); } catch (e) {}
 };
