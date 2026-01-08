@@ -5,7 +5,7 @@ class GeminiQueue {
   private queue: (() => Promise<any>)[] = [];
   private processing = false;
   private lastRequestTime = 0;
-  private readonly MIN_INTERVAL = 3000; 
+  private readonly MIN_INTERVAL = 500; // Ridotto da 3000 a 500ms per maggiore reattività
 
   async add<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -32,7 +32,13 @@ class GeminiQueue {
     while (this.queue.length > 0) {
       const task = this.queue.shift();
       if (task) {
-          try { await task(); } catch (e) { console.error("[Gemini-Queue] Error:", e); }
+          try { 
+            // Aggiunto un timeout di sicurezza al singolo task per evitare blocchi infiniti
+            const taskTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("GEMINI_TASK_TIMEOUT")), 30000));
+            await Promise.race([task(), taskTimeout]);
+          } catch (e) { 
+            console.error("[Gemini-Queue] Error in task processing:", e); 
+          }
       }
     }
     this.processing = false;
@@ -41,30 +47,24 @@ class GeminiQueue {
 
 export const geminiQueue = new GeminiQueue();
 
-/**
- * Verifica se l'API Key è presente e valida.
- * Se manca, prova ad attivare il selettore di Google AI Studio "nascostamente".
- */
 export const ensureApiKey = async (): Promise<boolean> => {
     const isKeyValid = (key?: string) => !!key && key !== 'undefined' && key !== 'null' && key.length > 5;
     
-    // Se la chiave è già presente in process.env, siamo a posto
     if (isKeyValid(process.env.API_KEY)) return true;
 
     const aistudio = (window as any).aistudio;
     if (aistudio) {
         try {
-            // Controlliamo se una chiave è già stata selezionata nel contesto aistudio
             if (typeof aistudio.hasSelectedApiKey === 'function') {
                 const hasSelected = await aistudio.hasSelectedApiKey();
                 if (hasSelected) return true;
             }
             
-            // Se non c'è e siamo chiamati, è il "momento opportuno" per aprirlo
             if (typeof aistudio.openSelectKey === 'function') {
-                console.log("[BuonUmore-AI] Chiave mancante. Attivazione automatica selettore...");
-                await aistudio.openSelectKey();
-                return true; // Procediamo assumendo che l'utente selezioni una chiave
+                console.log("[BuonUmore-AI] Chiave mancante. Attivazione selettore...");
+                // Non attendiamo (await) il completamento del dialogo per non bloccare l'interfaccia
+                aistudio.openSelectKey();
+                return true; 
             }
         } catch (e) {
             console.error("[BuonUmore-AI] Errore attivazione chiave:", e);
@@ -73,9 +73,6 @@ export const ensureApiKey = async (): Promise<boolean> => {
     return false;
 };
 
-/**
- * Crea una nuova istanza di GoogleGenAI utilizzando la chiave API corrente.
- */
 export const getClient = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
@@ -84,8 +81,7 @@ export const getClient = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 4000): Promise<T> => {
-  // Prima di ogni operazione AI, ci assicuriamo che la chiave esista
+export const withRetry = async <T>(fn: () => Promise<T>, retries = 1, delay = 2000): Promise<T> => {
   await ensureApiKey();
 
   return geminiQueue.add(async () => {
@@ -96,16 +92,14 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 40
       } catch (error: any) {
         lastError = error;
         
-        // Se la chiave manca, riproviamo l'attivazione una volta sola
         if (error.message === "API_KEY_MISSING") {
              const activated = await ensureApiKey();
              if (!activated) throw error;
         }
         
         if (i < retries) {
-          console.warn(`[Gemini-Client] Tentativo ${i + 1} fallito. Riprovo...`);
+          console.warn(`[Gemini-Client] Tentativo ${i + 1} fallito. Riprovo in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
-          delay *= 1.5;
           continue;
         }
       }
