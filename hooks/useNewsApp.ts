@@ -8,8 +8,8 @@ export const useNewsApp = () => {
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [activeCategoryId, setActiveCategoryId] = useState<string>(DEFAULT_CATEGORIES[0].id); 
   const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [authInitialized, setAuthInitialized] = useState(false); // Stato per tracking init auth
+  const [loading, setLoading] = useState(false); // Cambiato a false per default
+  const [authInitialized, setAuthInitialized] = useState(false); 
   
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -31,15 +31,18 @@ export const useNewsApp = () => {
     }
   }, []);
 
-  // 2. Gestione Autenticazione (Silenziosa all'avvio)
+  // 2. Gestione Autenticazione con Timeout di sicurezza
   useEffect(() => {
     const initAuth = async () => {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("AUTH_TIMEOUT")), 3000));
+        
         try {
-            // Verifica se esiste una sessione persistita reale nel browser
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await Promise.race([
+                supabase.auth.getSession(),
+                timeoutPromise
+            ]) as any;
             
             if (session?.user) {
-                // Se c'è una sessione, carica il profilo utente e i preferiti
                 const profile = await db.getCurrentUserProfile();
                 if (profile) {
                     setCurrentUser(profile);
@@ -47,34 +50,29 @@ export const useNewsApp = () => {
                     setFavoriteArticleIds(ids);
                 }
             } else {
-                // Se NON c'è sessione, l'utente è un semplice Guest
-                // Non mostriamo più il modale automaticamente qui
                 setCurrentUser(null);
             }
         } catch (e) {
-            console.error("Auth init error:", e);
+            console.warn("Auth init slow or failed, proceeding as guest:", e);
         } finally {
-            // L'auth è stata verificata, possiamo mostrare l'app
             setAuthInitialized(true);
         }
     };
 
     initAuth();
 
-    // Listener per i cambiamenti di stato (Login/Logout effettuati manualmente)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN') {
             if (session?.user) {
                 const profile = await db.getCurrentUserProfile();
                 setCurrentUser(profile);
-                setShowLoginModal(false); // Chiudi il modale solo se l'utente ha appena fatto login
+                setShowLoginModal(false);
                 if (profile) {
                     const ids = await db.getUserFavoritesIds(profile.id);
                     setFavoriteArticleIds(ids);
                 }
             }
         } else if (event === 'SIGNED_OUT') {
-            // In caso di logout, resetta lo stato ma non forzare il login modale
             setCurrentUser(null);
             setFavoriteArticleIds(new Set());
             setShowFavoritesOnly(false);
@@ -92,7 +90,9 @@ export const useNewsApp = () => {
     try {
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel, catId);
+            // Se c'è un'altra richiesta più recente in corso, fermati
             if (currentFetchId !== fetchCounterRef.current) return;
+            
             if (cached && cached.length > 0) {
                 setArticles(cached);
                 setLoading(false);
@@ -101,20 +101,26 @@ export const useNewsApp = () => {
         }
 
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
+        
+        // Controllo critico: se l'utente ha cambiato categoria o cliccato di nuovo, scarta i risultati vecchi
         if (currentFetchId !== fetchCounterRef.current) return;
 
         if (aiArticles && aiArticles.length > 0) {
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
             db.saveArticles(catLabel, aiArticles).catch(() => {});
         } else {
-            setNotification("Nessuna nuova notizia trovata.");
+            setNotification("Nessuna nuova notizia trovata al momento.");
             const fallback = await db.getCachedArticles(catLabel, catId);
             if (fallback.length > 0) setArticles(fallback);
         }
     } catch (error) {
-        setNotification("Errore di connessione.");
+        console.error("Fetch error:", error);
+        setNotification("Impossibile caricare le notizie. Riprova tra poco.");
     } finally {
-        if (currentFetchId === fetchCounterRef.current) setLoading(false);
+        // Solo l'ultima operazione può resettare lo stato di loading
+        if (currentFetchId === fetchCounterRef.current) {
+            setLoading(false);
+        }
     }
   };
 
@@ -129,7 +135,10 @@ export const useNewsApp = () => {
   return {
     categories, activeCategoryId, articles, 
     activeCategoryLabel: categories.find(c => c.id === activeCategoryId)?.label,
-    loading: loading || !authInitialized, 
+    // Il loading globale dell'app considera l'inizializzazione auth
+    // Ma il loading delle operazioni specifiche (spinner tasto) usa solo 'loading'
+    isAppLoading: !authInitialized,
+    loading, 
     selectedArticle, showLoginModal, showFavoritesOnly, currentUser, 
     favoriteArticleIds, notification,
     setActiveCategoryId: handleCategoryChange, 
@@ -149,7 +158,6 @@ export const useNewsApp = () => {
     },
     onImageGenerated: (u: string, i: string) => setArticles(p => p.map(a => a.url === u ? { ...a, imageUrl: i } : a)),
     handleToggleFavorite: async (article: Article) => {
-        // Se l'utente non è loggato e prova a salvare un preferito, mostriamo il modale
         if (!currentUser) { setShowLoginModal(true); return; }
         
         let id = article.id;
