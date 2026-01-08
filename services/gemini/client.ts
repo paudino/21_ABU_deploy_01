@@ -42,18 +42,52 @@ class GeminiQueue {
 export const geminiQueue = new GeminiQueue();
 
 /**
+ * Verifica se l'API Key è presente e valida.
+ * Se manca, prova ad attivare il selettore di Google AI Studio "nascostamente".
+ */
+export const ensureApiKey = async (): Promise<boolean> => {
+    const isKeyValid = (key?: string) => !!key && key !== 'undefined' && key !== 'null' && key.length > 5;
+    
+    // Se la chiave è già presente in process.env, siamo a posto
+    if (isKeyValid(process.env.API_KEY)) return true;
+
+    const aistudio = (window as any).aistudio;
+    if (aistudio) {
+        try {
+            // Controlliamo se una chiave è già stata selezionata nel contesto aistudio
+            if (typeof aistudio.hasSelectedApiKey === 'function') {
+                const hasSelected = await aistudio.hasSelectedApiKey();
+                if (hasSelected) return true;
+            }
+            
+            // Se non c'è e siamo chiamati, è il "momento opportuno" per aprirlo
+            if (typeof aistudio.openSelectKey === 'function') {
+                console.log("[BuonUmore-AI] Chiave mancante. Attivazione automatica selettore...");
+                await aistudio.openSelectKey();
+                return true; // Procediamo assumendo che l'utente selezioni una chiave
+            }
+        } catch (e) {
+            console.error("[BuonUmore-AI] Errore attivazione chiave:", e);
+        }
+    }
+    return false;
+};
+
+/**
  * Crea una nuova istanza di GoogleGenAI utilizzando la chiave API corrente.
- * Questo assicura che se l'utente cambia chiave tramite il dialogo, l'app la utilizzi subito.
  */
 export const getClient = () => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
       throw new Error("API_KEY_MISSING");
   }
   return new GoogleGenAI({ apiKey });
 };
 
 export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 4000): Promise<T> => {
+  // Prima di ogni operazione AI, ci assicuriamo che la chiave esista
+  await ensureApiKey();
+
   return geminiQueue.add(async () => {
     let lastError: any;
     for (let i = 0; i <= retries; i++) {
@@ -61,8 +95,12 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 40
         return await fn();
       } catch (error: any) {
         lastError = error;
-        // Se la chiave manca, non ha senso riprovare
-        if (error.message === "API_KEY_MISSING") throw error;
+        
+        // Se la chiave manca, riproviamo l'attivazione una volta sola
+        if (error.message === "API_KEY_MISSING") {
+             const activated = await ensureApiKey();
+             if (!activated) throw error;
+        }
         
         if (i < retries) {
           console.warn(`[Gemini-Client] Tentativo ${i + 1} fallito. Riprovo...`);
