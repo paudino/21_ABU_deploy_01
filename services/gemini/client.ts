@@ -43,24 +43,10 @@ export const geminiQueue = new GeminiQueue();
 
 /**
  * Inizializza il client Gemini.
- * Accede in modo sicuro a process.env.API_KEY.
+ * Utilizza esclusivamente process.env.API_KEY.
  */
 export const getClient = () => {
-  let apiKey = "";
-  try {
-      // Accesso standard secondo linee guida
-      apiKey = process.env.API_KEY || "";
-  } catch (e) {
-      console.warn("[DIAGNOSTIC-GEMINI] Modulo 'process' non trovato, verifico alternative.");
-  }
-  
-  if (!apiKey) {
-    console.error("[DIAGNOSTIC-GEMINI] ATTENZIONE: API_KEY non trovata. L'AI restituirà errori.");
-  } else {
-    console.log(`[DIAGNOSTIC-GEMINI] Client inizializzato. API_KEY presente (L:${apiKey.length})`);
-  }
-
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 5000): Promise<T> => {
@@ -71,12 +57,8 @@ export const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 50
         return await fn();
       } catch (error: any) {
         lastError = error;
-        if (error.message?.includes("API_KEY") || error.message?.includes("API key")) {
-          console.error("[DIAGNOSTIC-GEMINI] API Key Error:", error.message);
-          throw error;
-        }
         if (i < retries) {
-          console.warn(`[DIAGNOSTIC-GEMINI] Tentativo ${i + 1} fallito: ${error.message}. Riprovo...`);
+          console.warn(`[Gemini-Client] Tentativo ${i + 1} fallito. Riprovo...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
           continue;
