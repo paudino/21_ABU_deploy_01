@@ -50,7 +50,6 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
   if (!rawNews || rawNews.length === 0) return [];
 
   try {
-    const ai = getClient();
     const newsListString = rawNews.slice(0, 10).map((n, i) => 
         `[ID:${i}] Titolo: ${n.title}\nDescrizione: ${n.description}`
     ).join('\n---\n');
@@ -74,11 +73,14 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
 
     console.log(`[DIAGNOSTIC-GEMINI] Passo ${rawNews.length} notizie grezze a Gemini per l'analisi.`);
 
-    // Esegue la richiesta a Gemini con logica di retry
-    const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-    })); 
+    // Esegue la richiesta a Gemini con logica di retry. getClient() DEVE stare dentro withRetry.
+    const response = await withRetry<GenerateContentResponse>(() => {
+        const ai = getClient();
+        return ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+        });
+    }); 
 
     const textResponse = response.text;
     if (!textResponse) throw new Error("Risposta AI vuota");
