@@ -2,19 +2,25 @@
 import { supabase } from '../supabaseClient';
 import { User } from '../../types';
 
+/**
+ * Sincronizza il profilo utente nella tabella pubblica 'users'.
+ * Questa funzione è ora non-bloccante e resiliente agli errori di schema/RLS.
+ */
 export const ensureUserExists = async (user: User) => {
     try {
+        // Usiamo upsert per creare o aggiornare il profilo pubblico
         const { error } = await supabase.from('users').upsert({
             id: user.id,
             username: user.username,
             avatar: user.avatar
-        });
+        }, { onConflict: 'id' });
         
         if (error) {
-            console.error("[AuthService] Errore sync utente (upsert):", error.message);
+            // Logghiamo solo in debug, non interrompiamo il flusso dell'utente
+            console.debug("[Auth-Sync] Nota: Sincronizzazione profilo DB non riuscita (opzionale):", error.message);
         }
     } catch (e) {
-        console.error("[AuthService] Eccezione sync utente:", e);
+        console.debug("[Auth-Sync] Nota: Eccezione durante sync profilo:", e);
     }
 };
 
@@ -35,8 +41,8 @@ export const signUpWithEmail = async (email: string, password: string) => {
 
     if (authError) return { data, error: authError };
 
+    // Sincronizzazione in background
     if (data.user) {
-        // Tentiamo la creazione del profilo, ma non blocchiamo se fallisce (es. RLS senza sessione attiva)
         ensureUserExists({
             id: data.user.id,
             username: username,
@@ -48,11 +54,7 @@ export const signUpWithEmail = async (email: string, password: string) => {
 };
 
 export const signInWithEmail = async (email: string, password: string) => {
-    const response = await supabase.auth.signInWithPassword({ email, password });
-    if (response.error) {
-        console.error("[AuthService] Errore Supabase SignIn:", response.error.message);
-    }
-    return response;
+    return await supabase.auth.signInWithPassword({ email, password });
 };
 
 export const signInWithProvider = async (provider: 'google') => {
@@ -68,28 +70,33 @@ export const signInWithProvider = async (provider: 'google') => {
 };
 
 export const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error("[AuthService] Errore logout supabase:", error.message);
-    return { error };
+    return await supabase.auth.signOut();
 };
 
+/**
+ * Recupera il profilo utente prioritizzando i metadati della sessione Auth.
+ * Non fallisce se il database non risponde.
+ */
 export const getCurrentUserProfile = async (): Promise<User | null> => {
     try {
+        // 1. Prendiamo i dati direttamente dalla sessione di Supabase Auth (Fonte di Verità)
         const { data: { user }, error: userError } = await supabase.auth.getUser();
+        
         if (userError || !user) return null;
 
-        const userProfile: User = {
+        // Costruiamo l'oggetto User dai metadati della sessione
+        const profile: User = {
             id: user.id,
             username: user.user_metadata.full_name || user.email?.split('@')[0] || 'Utente',
             avatar: user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
         };
 
-        // Assicuriamo che esista nella tabella pubblica 'users'
-        await ensureUserExists(userProfile);
+        // 2. Tentiamo la sincronizzazione in background (non bloccante)
+        ensureUserExists(profile).catch(() => {});
 
-        return userProfile;
+        return profile;
     } catch (e) {
-        console.error("[AuthService] Errore recupero profilo:", e);
+        console.error("[AuthService] Errore critico nel recupero profilo:", e);
         return null;
     }
 };
