@@ -2,36 +2,40 @@
 import { supabase } from '../supabaseClient';
 import { Article } from '../../types';
 
+// Funzione di utilità per evitare che le chiamate al DB rimangano appese all'infinito
+const timeout = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT_DB")), ms));
+
 export const getCachedArticles = async (categoryLabel: string, categoryId?: string): Promise<Article[]> => {
     const searchTag = (categoryLabel || '').trim();
     
-    console.log(`[DB] getCachedArticles: Cerco "${searchTag}"`);
+    console.log(`[DB] getCachedArticles: Avvio query per "${searchTag}"...`);
 
     try {
-        // Query semplice: cerchiamo corrispondenza esatta sulla categoria.
-        // Se il DB è vuoto, questo restituirà [] velocemente.
-        const { data, error } = await supabase
+        // Usiamo Promise.race per non rimanere bloccati se la rete o Supabase hanno problemi
+        const queryPromise = supabase
             .from('articles')
             .select('*')
             .eq('category', searchTag)
             .order('created_at', { ascending: false })
             .limit(20);
 
+        const response: any = await Promise.race([queryPromise, timeout(5000)]);
+        const { data, error } = response;
+
         if (error) {
-            console.error("[DB] Errore query Supabase:", error.message);
+            console.error("[DB] Errore risposta Supabase:", error.message);
             return [];
         }
 
         if (!data || data.length === 0) {
-            console.log(`[DB] Nessun articolo trovato in cache per "${searchTag}"`);
+            console.log(`[DB] Nessun dato trovato per "${searchTag}"`);
             return [];
         }
 
-        console.log(`[DB] Successo! Trovati ${data.length} articoli.`);
+        console.log(`[DB] Query completata: ${data.length} record ricevuti.`);
 
         return data.map((a: any) => {
             try {
-                // Gestione robusta della data per evitare crash .split()
                 const rawDate = a.published_date || a.date || a.created_at || '';
                 const dateStr = typeof rawDate === 'string' ? rawDate : String(rawDate);
                 const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
@@ -45,20 +49,19 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
                     date: cleanDate,
                     category: a.category,
                     imageUrl: a.image_url || '',
-                    audioBase64: a.audio_base_64 || '',
+                    audioBase64: a.audio_base64 || '',
                     sentimentScore: Number(a.sentiment_score || 0.8),
                     likeCount: 0,
                     dislikeCount: 0
                 };
-            } catch (mappingError) {
-                console.error("[DB] Errore mapping record:", a.id, mappingError);
+            } catch (err) {
                 return null;
             }
         }).filter(Boolean) as Article[];
 
     } catch (e: any) {
-        console.error("[DB] Eccezione critica nel recupero:", e.message);
-        return [];
+        console.warn(`[DB] Recupero fallito o timeout per "${searchTag}":`, e.message);
+        return []; // Restituiamo array vuoto per forzare l'uso di Gemini
     }
 };
 
@@ -74,7 +77,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
         published_date: a.date, 
         sentiment_score: a.sentimentScore,
         image_url: a.imageUrl || null,
-        audio_base_64: a.audioBase64 || null
+        audio_base64: a.audioBase64 || null
     }));
 
     try {
@@ -84,7 +87,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             .select();
         
         if (error) {
-            console.warn("[DB] Errore durante l'upsert:", error.message);
+            console.warn("[DB] Errore salvataggio:", error.message);
             return articles;
         }
         
@@ -99,5 +102,5 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 };
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
-    try { await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); } catch (e) {}
+    try { await supabase.from('articles').update({ audio_base64: audioBase64 }).eq('url', articleUrl); } catch (e) {}
 };
