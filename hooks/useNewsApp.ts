@@ -24,7 +24,7 @@ export const useNewsApp = () => {
   // 1. CARICAMENTO IMMEDIATO
   useEffect(() => {
     if (!initialLoadTriggered.current) {
-        console.log("[DIAGNOSTIC-APP] Boot: Avvio caricamento iniziale.");
+        console.log("[NewsApp] Boot: Avvio caricamento iniziale.");
         initialLoadTriggered.current = true;
         const firstCat = DEFAULT_CATEGORIES[0];
         fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
@@ -37,24 +37,20 @@ export const useNewsApp = () => {
         try {
             const { data: { user } } = await (supabase.auth as any).getUser();
             if (user) {
-                console.log("[DIAGNOSTIC-APP] Utente loggato rilevato:", user.email);
                 const profile = await db.getCurrentUserProfile();
                 setCurrentUser(profile);
                 if (profile) {
                     const ids = await db.getUserFavoritesIds(profile.id);
                     setFavoriteArticleIds(ids);
                 }
-            } else {
-                console.log("[DIAGNOSTIC-APP] Sessione ospite.");
             }
         } catch (e) {
-            console.warn("[DIAGNOSTIC-APP] Errore verifica utente:", e);
+            console.warn("[NewsApp] Errore verifica utente:", e);
         }
     };
     checkUser();
 
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-        console.log("[DIAGNOSTIC-APP] Auth Event:", event);
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const user = await db.getCurrentUserProfile();
             setCurrentUser(user);
@@ -75,62 +71,52 @@ export const useNewsApp = () => {
 
   // Caricamento Notizie
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    if (isFetchingRef.current) {
-        console.log("[DIAGNOSTIC-APP] Fetch ignorato: operazione già in corso.");
-        return;
-    }
+    if (isFetchingRef.current) return;
     
     isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
     
-    console.log(`[DIAGNOSTIC-APP] STEP 1: Richiesta news per "${catLabel}" (ForceAI: ${forceAi})`);
-    
     try {
         if (!forceAi) {
-            console.log("[DIAGNOSTIC-APP] STEP 2: Controllo cache database...");
-            const cached = await db.getCachedArticles(catLabel);
+            // Cerchiamo nel DB usando sia il Label che l'ID per sicurezza
+            const cached = await db.getCachedArticles(catLabel, catId);
             if (cached && cached.length > 0) {
-                console.log(`[DIAGNOSTIC-APP] STEP 3: Utilizzo ${cached.length} articoli dalla cache.`);
+                console.log(`[NewsApp] Caricati ${cached.length} articoli dalla cache.`);
                 setArticles(cached); 
                 setLoading(false); 
                 isFetchingRef.current = false;
                 return; 
             }
-            console.log("[DIAGNOSTIC-APP] STEP 2b: Cache vuota o non disponibile.");
         }
 
-        console.log("[DIAGNOSTIC-APP] STEP 4: Avvio fetch tramite Gemini AI...");
+        // Se non ci sono dati in cache o abbiamo forzato l'AI
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
-            console.log(`[DIAGNOSTIC-APP] STEP 5: Ricevuti ${aiArticles.length} articoli dall'AI.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-            
-            // Salvataggio asincrono in cache
-            db.saveArticles(catLabel, aiArticles).then(() => {
-                console.log("[DIAGNOSTIC-APP] STEP 6: Cache aggiornata con successo.");
-            }).catch(e => {
-                console.warn("[DIAGNOSTIC-APP] STEP 6 Error: Salvataggio cache fallito.");
-            });
+            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[NewsApp] Errore salvataggio cache:", e));
         } else {
-            console.warn("[DIAGNOSTIC-APP] STEP 5 Error: Nessun articolo ricevuto.");
-            setNotification("Spiacenti, non abbiamo trovato notizie positive per questa categoria al momento.");
+            // Se Gemini fallisce, proviamo comunque a caricare ciò che abbiamo nel DB come ultima risorsa
+            const fallbackCached = await db.getCachedArticles(catLabel, catId);
+            if (fallbackCached.length > 0) {
+                setArticles(fallbackCached);
+            } else {
+                setNotification("Spiacenti, non abbiamo trovato notizie positive per questa categoria.");
+            }
         }
     } catch (error: any) {
-        console.error("[DIAGNOSTIC-APP] FATAL ERROR nel ciclo di fetch:", error.message);
-        setNotification("Il servizio news ha riscontrato un problema tecnico. Riprova più tardi.");
+        console.error("[NewsApp] Errore fatale fetch:", error.message);
+        setNotification("Problema tecnico nel caricamento delle notizie.");
     } finally {
         setLoading(false);
         isFetchingRef.current = false;
-        console.log("[DIAGNOSTIC-APP] Operazione terminata.");
     }
   };
 
   const handleCategoryChange = (catId: string) => {
     if (activeCategoryId === catId && !showFavoritesOnly) return;
     
-    console.log(`[DIAGNOSTIC-APP] Cambio categoria -> ${catId}`);
     setActiveCategoryId(catId);
     setShowFavoritesOnly(false);
     setArticles([]); 
@@ -172,7 +158,7 @@ export const useNewsApp = () => {
                 articleToUpdate = saved[0];
             }
         } catch (e) {
-            console.error("[DIAGNOSTIC-APP] Errore salvataggio per preferiti:", e);
+            console.error("[NewsApp] Errore salvataggio preferito:", e);
             return;
         }
     }
@@ -201,7 +187,6 @@ export const useNewsApp = () => {
     setActiveCategoryId: handleCategoryChange, setSelectedArticle, setShowLoginModal, setShowFavoritesOnly,
     handleLogin: async () => {}, 
     handleLogout: async () => { 
-        console.log("[DIAGNOSTIC-APP] Logout eseguito.");
         setCurrentUser(null); 
         setFavoriteArticleIds(new Set()); 
         setShowFavoritesOnly(false); 
