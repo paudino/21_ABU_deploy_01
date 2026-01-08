@@ -61,7 +61,7 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
 
     } catch (e: any) {
         console.warn(`[DB] Recupero fallito o timeout per "${searchTag}":`, e.message);
-        return []; // Restituiamo array vuoto per forzare l'uso di Gemini
+        return [];
     }
 };
 
