@@ -4,93 +4,112 @@ import { Article } from '../../types';
 import { fetchRawNewsFromRSS, RawNewsItem } from '../newsFetcher';
 import { GenerateContentResponse } from "@google/genai";
 
+/**
+ * Funzione di utilità per il parsing degli articoli selezionati e rielaborati da Gemini.
+ */
+const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: string): Article[] => {
+    try {
+        // Pulisce il testo da eventuali decorazioni markdown di Gemini
+        const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        const aiSelections = JSON.parse(cleanJson);
+        
+        if (!Array.isArray(aiSelections)) return [];
+
+        return aiSelections.map(ai => {
+            const original = rawNews[ai.id_originale];
+            if (!original) return null;
+
+            let dateStr = "";
+            try {
+                dateStr = new Date(original.pubDate).toISOString().split('T')[0];
+            } catch (e) {
+                dateStr = new Date().toISOString().split('T')[0];
+            }
+
+            // Costruisce l'oggetto articolo completo basandosi sulla selezione dell'AI e i dati originali
+            return {
+                title: ai.title,
+                summary: ai.summary,
+                source: ai.source || "Fonte",
+                url: original.link,
+                date: dateStr,
+                category: categoryLabel,
+                sentimentScore: ai.sentimentScore || 0.9,
+                isNew: true
+            } as Article;
+        }).filter((a): a is Article => a !== null);
+    } catch (e) {
+        console.error("[Gemini-News] Errore nel parsing del JSON di Gemini:", e);
+        return [];
+    }
+};
+
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
-  console.log(`[DIAGNOSTIC-GEMINI] Avvio fetchPositiveNews per ${categoryLabel}`);
-  
   const rawNews = await fetchRawNewsFromRSS(categoryLabel);
   
-  if (!rawNews || rawNews.length === 0) {
-    console.warn(`[DIAGNOSTIC-GEMINI] Nessuna notizia grezza da elaborare per ${categoryLabel}`);
-    return [];
-  }
-
-  console.log(`[DIAGNOSTIC-GEMINI] Passo ${rawNews.length} notizie grezze a Gemini per l'analisi.`);
+  if (!rawNews || rawNews.length === 0) return [];
 
   try {
     const ai = getClient();
-    const newsListString = rawNews.slice(0, 8).map((n, i) => 
+    const newsListString = rawNews.slice(0, 10).map((n, i) => 
         `[ID:${i}] Titolo: ${n.title}\nDescrizione: ${n.description}`
     ).join('\n---\n');
 
     const prompt = `
-      Sei un redattore esperto del "Buon Umore". Analizza queste notizie e seleziona le 4 più positive, incoraggianti o basate su soluzioni costruttive.
+      Agisci come un Caporedattore esperto di giornalismo costruttivo. 
+      Analizza le seguenti notizie italiane e seleziona le 4 che mostrano progresso umano, atti di gentilezza, innovazioni sostenibili o soluzioni a problemi complessi.
       
-      REGOLE:
-      - Traduci TUTTO in Italiano perfetto.
-      - Scrivi un titolo accattivante e un riassunto (summary) emozionante per ogni notizia.
-      - Restituisci RIGOROSAMENTE solo un array JSON con questa struttura:
-      [{"id_originale": numero_id, "title": "...", "summary": "...", "source": "Nome Fonte", "sentimentScore": 0.9}]
+      REGOLE MANDATORIE:
+      1. Linguaggio Italiano fluido, positivo ed emozionante.
+      2. Scrivi un nuovo titolo che catturi l'essenza positiva.
+      3. Riassunto di circa 40 parole che metta in luce perché la notizia è una "buona notizia".
+      4. Restituisci SOLO un array JSON valido.
       
-      NOTIZIE:
+      STRUTTURA JSON:
+      [{"id_originale": 0, "title": "...", "summary": "...", "source": "...", "sentimentScore": 0.95}]
+      
+      NOTIZIE DA ANALIZZARE:
       ${newsListString}
     `;
 
-    console.time(`gemini-request-${categoryLabel}`);
+    console.log(`[DIAGNOSTIC-GEMINI] Passo ${rawNews.length} notizie grezze a Gemini per l'analisi.`);
+
+    // Esegue la richiesta a Gemini con logica di retry
     const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
     })); 
-    console.timeEnd(`gemini-request-${categoryLabel}`);
 
     const textResponse = response.text;
-    if (!textResponse) {
-        console.error("[DIAGNOSTIC-GEMINI] Risposta Gemini vuota o indefinita.");
-        throw new Error("Risposta AI non valida");
-    }
-
-    console.log(`[DIAGNOSTIC-GEMINI] Risposta AI ricevuta. Lunghezza: ${textResponse.length} caratteri.`);
+    if (!textResponse) throw new Error("Risposta AI vuota");
 
     const articles = parseArticles(textResponse, rawNews, categoryLabel);
-    console.log(`[DIAGNOSTIC-GEMINI] Parsing completato. Articoli generati: ${articles.length}`);
-    
-    if (articles.length > 0) return articles;
-    throw new Error("Parsing fallito o array vuoto");
+    if (articles.length === 0) throw new Error("Parsing JSON fallito");
+
+    return articles;
 
   } catch (error: any) {
-    console.error("[DIAGNOSTIC-GEMINI] ERRORE durante la chiamata AI:", error.message || error);
+    console.error(`[DIAGNOSTIC-GEMINI] ERRORE durante la chiamata AI: ${error.message}`);
+    console.warn("[DIAGNOSTIC-GEMINI] Utilizzo fallback: converto notizie grezze (già in italiano) in articoli standard.");
     
-    // Fallback: mostra le notizie originali se Gemini fallisce
-    console.warn("[DIAGNOSTIC-GEMINI] Utilizzo fallback: converto notizie grezze in articoli standard.");
-    return rawNews.slice(0, 4).map(n => ({
-        title: n.title,
-        summary: n.description,
-        source: "Fonte News",
-        url: n.link,
-        date: new Date(n.pubDate).toISOString().split('T')[0],
-        category: categoryLabel,
-        sentimentScore: 0.85
-    }));
+    // Fallback sicuro che restituisce articoli conformi all'interfaccia Article
+    return rawNews.slice(0, 4).map(n => {
+        let dateStr = "";
+        try {
+            dateStr = new Date(n.pubDate).toISOString().split('T')[0];
+        } catch (e) {
+            dateStr = new Date().toISOString().split('T')[0];
+        }
+        return {
+            title: n.title,
+            summary: n.description,
+            source: "Aggregatore News Italia",
+            url: n.link,
+            date: dateStr,
+            category: categoryLabel,
+            sentimentScore: 0.85,
+            isNew: true
+        };
+    });
   }
-};
-
-const parseArticles = (text: string, rawNews: RawNewsItem[], categoryLabel: string): Article[] => {
-    try {
-        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        const aiChoices = JSON.parse(cleanText);
-        return aiChoices.map((choice: any) => {
-            const original = rawNews[choice.id_originale] || rawNews[0];
-            return {
-                title: choice.title || original.title,
-                summary: choice.summary || original.description,
-                source: choice.source || "Web",
-                url: original.link,
-                date: new Date(original.pubDate).toISOString().split('T')[0],
-                category: categoryLabel,
-                sentimentScore: choice.sentimentScore || 0.9
-            };
-        });
-    } catch (e: any) {
-        console.error("[DIAGNOSTIC-GEMINI] Errore nel parseArticles JSON:", e.message);
-        return [];
-    }
 };
