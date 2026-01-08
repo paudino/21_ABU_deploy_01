@@ -10,12 +10,12 @@ import { ArticleDetail } from './components/ArticleDetail';
 import { useNewsApp } from './hooks/useNewsApp';
 
 function App() {
-  // Utilizziamo l'hook personalizzato per tutta la logica di stato
   const {
     categories,
     activeCategoryId,
     articles,
     activeCategoryLabel,
+    isAppLoading,
     loading,
     selectedArticle,
     showLoginModal,
@@ -35,6 +35,16 @@ function App() {
     handleToggleFavorite,
     handleArticleUpdate
   } = useNewsApp();
+
+  // Se l'app sta inizializzando l'auth, mostriamo un caricamento a schermo intero
+  if (isAppLoading) {
+    return (
+      <div className="min-h-screen bg-joy-50 flex flex-col items-center justify-center">
+         <div className="w-16 h-16 border-4 border-joy-200 border-t-joy-500 rounded-full animate-spin mb-4"></div>
+         <p className="text-joy-700 font-display font-bold">L'angolo del Buon Umore si sta preparando...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative font-sans text-slate-900 flex flex-col">
