@@ -19,41 +19,49 @@ export const useNewsApp = () => {
   const [notification, setNotification] = useState<string | null>(null);
 
   const initialLoadTriggered = useRef(false);
-  const isFetchingRef = useRef(false);
+  const fetchCounterRef = useRef(0);
 
-  // Effetto per il caricamento iniziale
   useEffect(() => {
     if (!initialLoadTriggered.current) {
-        console.log("[App] Boot iniziale...");
         initialLoadTriggered.current = true;
         const first = DEFAULT_CATEGORIES[0];
         fetchNewsForCategory(first.id, first.label, first.value, false);
     }
   }, []);
 
-  // Effetto per l'utente
   useEffect(() => {
     const checkUser = async () => {
-        const { data: { user } } = await (supabase.auth as any).getUser();
-        if (user) {
+        try {
             const profile = await db.getCurrentUserProfile();
-            setCurrentUser(profile);
             if (profile) {
+                setCurrentUser(profile);
                 const ids = await db.getUserFavoritesIds(profile.id);
                 setFavoriteArticleIds(ids);
             }
+        } catch (e) {
+            console.error("[App] Errore checkUser iniziale:", e);
         }
     };
     checkUser();
 
-    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string) => {
-        if (event === 'SIGNED_IN') {
-            const profile = await db.getCurrentUserProfile();
-            setCurrentUser(profile);
-            setShowLoginModal(false);
+    // Supabase v2 signature: onAuthStateChange((event, session) => ...)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log(`[App] Auth Event: ${event}`);
+        
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+            if (session?.user) {
+                const profile = await db.getCurrentUserProfile();
+                setCurrentUser(profile);
+                setShowLoginModal(false);
+                if (profile) {
+                    const ids = await db.getUserFavoritesIds(profile.id);
+                    setFavoriteArticleIds(ids);
+                }
+            }
         } else if (event === 'SIGNED_OUT') {
             setCurrentUser(null);
             setFavoriteArticleIds(new Set());
+            setShowFavoritesOnly(false);
         }
     });
 
@@ -61,45 +69,51 @@ export const useNewsApp = () => {
   }, []);
 
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    if (isFetchingRef.current && !forceAi) return;
+    const currentFetchId = ++fetchCounterRef.current;
     
-    isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
     
-    console.log(`[App] Avvio fetchNews per ${catLabel}...`);
+    console.log(`[App] Richiesta notizie #${currentFetchId} per ${catLabel}`);
     
     try {
-        // 1. Prova a leggere dal DB
+        // 1. Prova DB (con timeout interno)
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel, catId);
+            // Se nel frattempo l'utente ha cambiato categoria, ignoriamo il risultato
+            if (currentFetchId !== fetchCounterRef.current) return;
+
             if (cached && cached.length > 0) {
-                console.log(`[App] Dati ricevuti dal DB: ${cached.length} articoli.`);
+                console.log(`[App] OK: Visualizzo ${cached.length} notizie dalla cache.`);
                 setArticles(cached);
                 setLoading(false);
-                isFetchingRef.current = false;
                 return;
             }
         }
 
-        // 2. Se DB vuoto o forceAi, chiedi a Gemini
-        console.log("[App] Cache vuota o Refresh: Chiamata Gemini in corso...");
+        // 2. Chiamata Gemini (se DB vuoto o timeout o refresh)
+        console.log("[App] Caricamento tramite AI...");
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
+        if (currentFetchId !== fetchCounterRef.current) return;
+
         if (aiArticles && aiArticles.length > 0) {
-            console.log(`[App] Dati ricevuti dall'AI: ${aiArticles.length} articoli.`);
+            console.log(`[App] OK: Ricevute ${aiArticles.length} notizie da Gemini.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-            // Salvataggio asincrono in background
             db.saveArticles(catLabel, aiArticles).catch(() => {});
         } else {
-            setNotification("Nessuna nuova notizia trovata al momento.");
+            setNotification("Nessuna nuova notizia trovata. Riprova tra poco.");
+            // Se Gemini fallisce, proviamo a mostrare comunque quello che c'è nel DB se disponibile
+            const fallback = await db.getCachedArticles(catLabel, catId);
+            if (fallback.length > 0) setArticles(fallback);
         }
     } catch (error) {
-        console.error("[App] Errore nel flusso di fetch:", error);
-        setNotification("Si è verificato un errore nel caricamento.");
+        console.error("[App] Errore critico nel flusso:", error);
+        setNotification("Errore di connessione. Controlla la tua rete.");
     } finally {
-        setLoading(false);
-        isFetchingRef.current = false;
+        if (currentFetchId === fetchCounterRef.current) {
+            setLoading(false);
+        }
     }
   };
 
