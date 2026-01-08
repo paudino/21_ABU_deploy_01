@@ -9,6 +9,7 @@ export const useNewsApp = () => {
   const [activeCategoryId, setActiveCategoryId] = useState<string>(DEFAULT_CATEGORIES[0].id); 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false); // Stato per tracking init auth
   
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -21,6 +22,7 @@ export const useNewsApp = () => {
   const initialLoadTriggered = useRef(false);
   const fetchCounterRef = useRef(0);
 
+  // 1. Caricamento notizie iniziale (pubblico)
   useEffect(() => {
     if (!initialLoadTriggered.current) {
         initialLoadTriggered.current = true;
@@ -29,33 +31,50 @@ export const useNewsApp = () => {
     }
   }, []);
 
+  // 2. Gestione Autenticazione (Silenziosa all'avvio)
   useEffect(() => {
     const initAuth = async () => {
-        const profile = await db.getCurrentUserProfile();
-        if (profile) {
-            setCurrentUser(profile);
-            const ids = await db.getUserFavoritesIds(profile.id);
-            setFavoriteArticleIds(ids);
+        try {
+            // Verifica se esiste una sessione persistita reale nel browser
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if (session?.user) {
+                // Se c'è una sessione, carica il profilo utente e i preferiti
+                const profile = await db.getCurrentUserProfile();
+                if (profile) {
+                    setCurrentUser(profile);
+                    const ids = await db.getUserFavoritesIds(profile.id);
+                    setFavoriteArticleIds(ids);
+                }
+            } else {
+                // Se NON c'è sessione, l'utente è un semplice Guest
+                // Non mostriamo più il modale automaticamente qui
+                setCurrentUser(null);
+            }
+        } catch (e) {
+            console.error("Auth init error:", e);
+        } finally {
+            // L'auth è stata verificata, possiamo mostrare l'app
+            setAuthInitialized(true);
         }
     };
+
     initAuth();
 
+    // Listener per i cambiamenti di stato (Login/Logout effettuati manualmente)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        if (event === 'SIGNED_IN') {
             if (session?.user) {
-                // Priorità assoluta: settiamo subito lo stato utente dai metadati della sessione
-                const fastProfile: User = {
-                    id: session.user.id,
-                    username: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Utente',
-                    avatar: session.user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`
-                };
-                setCurrentUser(fastProfile);
-                setShowLoginModal(false);
-
-                // Poi cerchiamo di caricare i preferiti
-                db.getUserFavoritesIds(session.user.id).then(setFavoriteArticleIds).catch(() => {});
+                const profile = await db.getCurrentUserProfile();
+                setCurrentUser(profile);
+                setShowLoginModal(false); // Chiudi il modale solo se l'utente ha appena fatto login
+                if (profile) {
+                    const ids = await db.getUserFavoritesIds(profile.id);
+                    setFavoriteArticleIds(ids);
+                }
             }
         } else if (event === 'SIGNED_OUT') {
+            // In caso di logout, resetta lo stato ma non forzare il login modale
             setCurrentUser(null);
             setFavoriteArticleIds(new Set());
             setShowFavoritesOnly(false);
@@ -110,7 +129,8 @@ export const useNewsApp = () => {
   return {
     categories, activeCategoryId, articles, 
     activeCategoryLabel: categories.find(c => c.id === activeCategoryId)?.label,
-    loading, selectedArticle, showLoginModal, showFavoritesOnly, currentUser, 
+    loading: loading || !authInitialized, 
+    selectedArticle, showLoginModal, showFavoritesOnly, currentUser, 
     favoriteArticleIds, notification,
     setActiveCategoryId: handleCategoryChange, 
     setSelectedArticle, 
@@ -129,7 +149,9 @@ export const useNewsApp = () => {
     },
     onImageGenerated: (u: string, i: string) => setArticles(p => p.map(a => a.url === u ? { ...a, imageUrl: i } : a)),
     handleToggleFavorite: async (article: Article) => {
+        // Se l'utente non è loggato e prova a salvare un preferito, mostriamo il modale
         if (!currentUser) { setShowLoginModal(true); return; }
+        
         let id = article.id;
         if (!id) {
             const saved = await db.saveArticles(article.category, [article]);
