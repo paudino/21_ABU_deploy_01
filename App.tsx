@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { ArticleList } from './components/ArticleList';
@@ -8,6 +8,7 @@ import { LoginModal } from './components/LoginModal';
 import { DailyDeed } from './components/DailyDeed';
 import { ArticleDetail } from './components/ArticleDetail';
 import { useNewsApp } from './hooks/useNewsApp';
+import { ensureApiKey } from './services/gemini/client';
 
 function App() {
   const {
@@ -35,6 +36,17 @@ function App() {
     handleToggleFavorite,
     handleArticleUpdate
   } = useNewsApp();
+
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Controllo preventivo della chiave API per evitare errori a catena
+    const checkKey = async () => {
+        const ok = await ensureApiKey();
+        setHasApiKey(ok);
+    };
+    checkKey();
+  }, []);
 
   // Se l'app sta inizializzando l'auth, mostriamo un caricamento a schermo intero
   if (isAppLoading) {
@@ -76,6 +88,24 @@ function App() {
         onSelectCategory={setActiveCategoryId}
         onAddCategory={handleAddCategory}
       />
+
+      {/* Avviso Chiave API mancante (Solo se rilevata come assente) */}
+      {hasApiKey === false && (
+          <div className="max-w-4xl mx-auto px-4 mt-4">
+              <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl flex items-center justify-between text-amber-900 text-sm font-medium animate-pulse">
+                  <div className="flex items-center gap-2">
+                      <span className="text-xl">⚠️</span>
+                      <span>Configurazione AI incompleta. Clicca sul Sole nell'header per attivare le citazioni e l'audio.</span>
+                  </div>
+                  <button 
+                    onClick={() => (window as any).aistudio?.openSelectKey()} 
+                    className="bg-amber-600 text-white px-4 py-1.5 rounded-lg hover:bg-amber-700 transition"
+                  >
+                    Configura
+                  </button>
+              </div>
+          </div>
+      )}
 
       {/* Sfida del Giorno */}
       {!showFavoritesOnly && currentUser && (
