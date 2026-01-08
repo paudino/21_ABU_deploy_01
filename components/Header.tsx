@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Quote } from '../types';
-import { IconHeart, IconRefresh } from './Icons';
+import { IconHeart } from './Icons';
 import { db } from '../services/dbService';
 import { generateInspirationalQuote } from '../services/geminiService';
 import { Tooltip } from './Tooltip';
+import { ensureApiKey } from '../services/gemini/client';
 
 interface HeaderProps {
   currentUser: User | null;
@@ -13,9 +14,6 @@ interface HeaderProps {
   onLogout: () => void;
   onLoginClick: () => void;
 }
-
-// Removed conflicting local 'declare global' block to resolve identical modifiers and type mismatch errors.
-// We will access window.aistudio using type casting at call sites.
 
 export const Header: React.FC<HeaderProps> = ({ 
   currentUser, 
@@ -26,52 +24,31 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(true);
 
   useEffect(() => {
-    checkApiKey();
     const timer = setTimeout(() => {
         loadInitialQuote();
-    }, 3000);
+    }, 2000);
     return () => clearTimeout(timer);
   }, []);
 
-  const checkApiKey = async () => {
-      try {
-          // Access aistudio via any cast to bypass global declaration conflicts
-          const aistudio = (window as any).aistudio;
-          if (aistudio) {
-              const has = await aistudio.hasSelectedApiKey();
-              setHasApiKey(has || !!process.env.API_KEY);
-          } else {
-              setHasApiKey(!!process.env.API_KEY);
-          }
-      } catch (e) {
-          setHasApiKey(!!process.env.API_KEY);
-      }
-  };
-
-  const handleActivateAI = async () => {
-      // Access aistudio via any cast to bypass global declaration conflicts
-      const aistudio = (window as any).aistudio;
-      if (aistudio) {
-          await aistudio.openSelectKey();
-          setHasApiKey(true);
-          // Riprova a caricare la citazione dopo l'attivazione
-          loadInitialQuote();
-      }
-  };
-
   const loadInitialQuote = async () => {
       const q = await db.getRandomQuote();
-      if (q) setQuote(q);
-      else if (hasApiKey) fetchNewQuote();
+      if (q) {
+          setQuote(q);
+      } else {
+          // Proviamo a caricarne una nuova se il DB è vuoto. 
+          // ensureApiKey verrà chiamato internamente dal service.
+          fetchNewQuote();
+      }
   };
 
   const fetchNewQuote = async () => {
-    if (loadingQuote || !hasApiKey) return;
+    if (loadingQuote) return;
     setLoadingQuote(true);
     try {
+        // La chiamata a generateInspirationalQuote ora innesca automaticamente 
+        // il selettore chiavi se non presente, grazie alla logica in withRetry/ensureApiKey
         const newQuote = await generateInspirationalQuote();
         if (newQuote) {
             await db.saveQuote(newQuote);
@@ -97,13 +74,13 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-auto min-h-[5rem] py-2 flex flex-col md:flex-row items-center justify-between gap-4">
         
         <div className="flex items-center gap-4 self-start md:self-center">
-          <Tooltip content={hasApiKey ? "Clicca per una nuova ispirazione!" : "Attiva AI per citazioni live"} position="bottom">
+          <Tooltip content="Nuova citazione" position="bottom">
             <button 
-                onClick={hasApiKey ? fetchNewQuote : handleActivateAI}
+                onClick={fetchNewQuote}
                 disabled={loadingQuote}
                 className="group relative flex-shrink-0 outline-none"
             >
-                <div className={`w-12 h-12 text-yellow-100 transition-transform duration-700 ease-in-out ${loadingQuote ? 'animate-[spin_1s_linear_infinite]' : 'group-hover:rotate-45'} ${!hasApiKey ? 'opacity-50' : ''}`}>
+                <div className={`w-12 h-12 text-yellow-100 transition-transform duration-700 ease-in-out ${loadingQuote ? 'animate-[spin_1s_linear_infinite]' : 'group-hover:rotate-45'}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-full h-full drop-shadow-md">
                         <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM21.75 12a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5H21a.75.75 0 0 1 .75.75ZM17.834 18.894a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 1 0-1.061 1.06l1.59 1.591ZM12 18a.75.75 0 0 1 .75.75V21a.75.75 0 0 1-1.5 0v-2.25A.75.75 0 0 1 12 18ZM7.758 17.303a.75.75 0 0 0-1.061-1.06l-1.591 1.59a.75.75 0 0 0 1.06 1.061l1.591-1.59ZM6 12a.75.75 0 0 1-.75.75H3a.75.75 0 0 1 0-1.5h2.25A.75.75 0 0 1 6 12ZM6.697 7.757a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 0 0-1.061 1.06l1.59 1.591Z" />
                     </svg>
@@ -125,7 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="relative inline-block max-w-xl">
                 <span className="absolute -top-4 -left-2 text-4xl text-white/30 font-serif leading-none">“</span>
                 <p className={`font-display italic text-lg text-white/95 leading-snug transition-opacity duration-500 ${loadingQuote ? 'opacity-0' : 'opacity-100'}`}>
-                   {quote ? quote.text : (hasApiKey ? "Cercando ispirazione per te..." : "Attiva l'AI per iniziare la giornata con un sorriso.")}
+                   {quote ? quote.text : "In attesa di ispirazione..."}
                 </p>
                 <span className="absolute -bottom-4 -right-2 text-4xl text-white/30 font-serif leading-none">”</span>
             </div>
@@ -137,16 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-3 self-end md:self-center">
-          {!hasApiKey && (
-              <button 
-                onClick={handleActivateAI}
-                className="bg-yellow-400 text-slate-900 px-4 py-2 rounded-full font-bold text-xs hover:bg-yellow-300 transition animate-pulse shadow-lg"
-              >
-                Attiva AI 🚀
-              </button>
-          )}
-
-          <Tooltip content={currentUser ? (showFavoritesOnly ? "Mostra tutte le notizie" : "Vedi i miei salvati") : "Accedi per vedere i preferiti"}>
+          <Tooltip content={currentUser ? (showFavoritesOnly ? "Tutte le notizie" : "I miei salvati") : "Accedi per i preferiti"}>
               <button 
                 onClick={handleHeartClick}
                 className={`group p-2 rounded-full transition-all duration-300 border-2 ${
@@ -184,12 +152,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
         </div>
-      </div>
-      
-      <div className="md:hidden bg-black/10 px-4 py-3 text-center border-t border-white/10">
-          <p className="text-sm italic text-white/90">
-              "{quote ? quote.text : (hasApiKey ? "Un momento di riflessione..." : "Attiva l'AI dalla barra in alto.")}"
-          </p>
       </div>
     </header>
   );
