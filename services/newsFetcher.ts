@@ -1,52 +1,53 @@
 
 /**
  * Servizio per il recupero di notizie REALI da fonti giornalistiche esterne.
- * Ottimizzato per la resilienza in produzione (Vercel).
+ * Ottimizzato per la resilienza e fonti esclusivamente italiane.
  */
 
 const RSS_FEEDS: Record<string, string[]> = {
   'Generale': [
-    'https://www.goodnewsnetwork.org/category/news/feed/',
     'https://www.italiachecambia.org/feed/', 
     'https://www.greenme.it/feed/',
-    'https://www.avvenire.it/rss/buone-notizie.xml'
+    'https://www.avvenire.it/rss/buone-notizie.xml',
+    'https://www.repubblica.it/rss/cronaca/buone_notizie/rss2.0.xml'
   ],
   'Tecnologia': [
     'https://www.hdblog.it/rss/',
     'https://punto-informatico.it/feed/',
-    'https://phys.org/rss-feed/technology-news/'
+    'https://www.wired.it/feed/rss/'
   ],
   'Medicina': [
     'https://www.fondazioneveronesi.it/magazine/rss',
     'https://www.quotidianosanita.it/rss.php',
-    'https://www.goodnewsnetwork.org/category/news/health/feed/'
+    'https://www.insalutenews.it/in-salute/feed/'
   ],
   'Ambiente': [
     'https://www.greenme.it/category/ambiente/feed/',
     'https://www.rinnovabili.it/feed/',
-    'https://www.goodnewsnetwork.org/category/news/earth/feed/'
+    'https://www.lifegate.it/feed'
   ],
   'Società': [
     'https://www.italiachecambia.org/categoria/societa/feed/',
-    'https://www.greenme.it/category/vivere/feed/'
+    'https://www.greenme.it/category/vivere/feed/',
+    'https://www.vita.it/it/rss/feed/'
   ],
   'Politica': [
     'https://www.italiachecambia.org/categoria/politica/feed/',
-    'https://www.goodnewsnetwork.org/category/news/world/feed/'
+    'https://www.ilfattoquotidiano.it/c/politica/feed/'
   ]
 };
 
 const EMERGENCY_FALLBACK_NEWS: RawNewsItem[] = [
   {
-    title: "Innovazione sostenibile: scoperte nuove frontiere",
+    title: "Innovazione sostenibile in Italia: nuovi passi avanti",
     link: "https://www.greenme.it",
-    description: "La scienza continua a fare passi da gigante verso un futuro più pulito e luminoso.",
+    description: "La ricerca italiana continua a proporre soluzioni innovative per un futuro ecosostenibile e circolare.",
     pubDate: new Date().toISOString()
   },
   {
-    title: "Solidarietà globale: uniti per il bene comune",
-    link: "https://www.goodnewsnetwork.org",
-    description: "Storie di persone che fanno la differenza ogni giorno con piccoli e grandi gesti.",
+    title: "Solidarietà e comunità: il valore dei piccoli gesti",
+    link: "https://www.italiachecambia.org",
+    description: "In tutto il territorio nazionale crescono le iniziative di mutuo soccorso e rigenerazione urbana.",
     pubDate: new Date().toISOString()
   }
 ];
@@ -73,14 +74,6 @@ const PROXY_STRATEGIES = [
     name: "CorsProxy.io",
     fn: async (url: string) => {
       const res = await fetchWithTimeout(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
-    }
-  },
-  {
-    name: "YACDN",
-    fn: async (url: string) => {
-      const res = await fetchWithTimeout(`https://yacdn.org/proxy/${url}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.text();
     }
@@ -141,7 +134,7 @@ function parseXmlResponse(xmlDoc: Document): RawNewsItem[] {
     
     if (items.length > 0) {
         items.forEach((item, index) => {
-            if (index >= 12) return; 
+            if (index >= 15) return; 
             news.push({
                 title: item.querySelector("title")?.textContent || "Notizia Positiva",
                 link: item.querySelector("link")?.textContent || "",
@@ -155,7 +148,7 @@ function parseXmlResponse(xmlDoc: Document): RawNewsItem[] {
     const entries = xmlDoc.querySelectorAll("entry");
     if (entries.length > 0) {
         entries.forEach((entry, index) => {
-            if (index >= 12) return;
+            if (index >= 15) return;
             news.push({
                 title: entry.querySelector("title")?.textContent || "Notizia Positiva",
                 link: entry.querySelector("link")?.getAttribute("href") || entry.querySelector("link")?.textContent || "",
