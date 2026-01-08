@@ -30,33 +30,30 @@ export const useNewsApp = () => {
   }, []);
 
   useEffect(() => {
-    const checkUser = async () => {
-        try {
-            const profile = await db.getCurrentUserProfile();
-            if (profile) {
-                setCurrentUser(profile);
-                const ids = await db.getUserFavoritesIds(profile.id);
-                setFavoriteArticleIds(ids);
-            }
-        } catch (e) {
-            console.error("[App] Errore checkUser iniziale:", e);
+    const initAuth = async () => {
+        const profile = await db.getCurrentUserProfile();
+        if (profile) {
+            setCurrentUser(profile);
+            const ids = await db.getUserFavoritesIds(profile.id);
+            setFavoriteArticleIds(ids);
         }
     };
-    checkUser();
+    initAuth();
 
-    // Supabase v2 signature: onAuthStateChange((event, session) => ...)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log(`[App] Auth Event: ${event}`);
-        
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
             if (session?.user) {
-                const profile = await db.getCurrentUserProfile();
-                setCurrentUser(profile);
+                // Priorità assoluta: settiamo subito lo stato utente dai metadati della sessione
+                const fastProfile: User = {
+                    id: session.user.id,
+                    username: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'Utente',
+                    avatar: session.user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`
+                };
+                setCurrentUser(fastProfile);
                 setShowLoginModal(false);
-                if (profile) {
-                    const ids = await db.getUserFavoritesIds(profile.id);
-                    setFavoriteArticleIds(ids);
-                }
+
+                // Poi cerchiamo di caricare i preferiti
+                db.getUserFavoritesIds(session.user.id).then(setFavoriteArticleIds).catch(() => {});
             }
         } else if (event === 'SIGNED_OUT') {
             setCurrentUser(null);
@@ -70,50 +67,35 @@ export const useNewsApp = () => {
 
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
     const currentFetchId = ++fetchCounterRef.current;
-    
     setLoading(true);
     setNotification(null);
     
-    console.log(`[App] Richiesta notizie #${currentFetchId} per ${catLabel}`);
-    
     try {
-        // 1. Prova DB (con timeout interno)
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel, catId);
-            // Se nel frattempo l'utente ha cambiato categoria, ignoriamo il risultato
             if (currentFetchId !== fetchCounterRef.current) return;
-
             if (cached && cached.length > 0) {
-                console.log(`[App] OK: Visualizzo ${cached.length} notizie dalla cache.`);
                 setArticles(cached);
                 setLoading(false);
                 return;
             }
         }
 
-        // 2. Chiamata Gemini (se DB vuoto o timeout o refresh)
-        console.log("[App] Caricamento tramite AI...");
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
-        
         if (currentFetchId !== fetchCounterRef.current) return;
 
         if (aiArticles && aiArticles.length > 0) {
-            console.log(`[App] OK: Ricevute ${aiArticles.length} notizie da Gemini.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
             db.saveArticles(catLabel, aiArticles).catch(() => {});
         } else {
-            setNotification("Nessuna nuova notizia trovata. Riprova tra poco.");
-            // Se Gemini fallisce, proviamo a mostrare comunque quello che c'è nel DB se disponibile
+            setNotification("Nessuna nuova notizia trovata.");
             const fallback = await db.getCachedArticles(catLabel, catId);
             if (fallback.length > 0) setArticles(fallback);
         }
     } catch (error) {
-        console.error("[App] Errore critico nel flusso:", error);
-        setNotification("Errore di connessione. Controlla la tua rete.");
+        setNotification("Errore di connessione.");
     } finally {
-        if (currentFetchId === fetchCounterRef.current) {
-            setLoading(false);
-        }
+        if (currentFetchId === fetchCounterRef.current) setLoading(false);
     }
   };
 
@@ -121,7 +103,6 @@ export const useNewsApp = () => {
     if (activeCategoryId === catId && !showFavoritesOnly) return;
     setActiveCategoryId(catId);
     setShowFavoritesOnly(false);
-    
     const cat = categories.find(c => c.id === catId);
     if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false);
   };
@@ -157,10 +138,10 @@ export const useNewsApp = () => {
         if (!id) return;
         if (favoriteArticleIds.has(id)) {
             setFavoriteArticleIds(p => { const n = new Set(p); n.delete(id!); return n; });
-            await db.removeFavorite(id, currentUser.id);
+            await db.removeFavorite(id, currentUser.id).catch(() => {});
         } else {
             setFavoriteArticleIds(p => new Set(p).add(id!));
-            await db.addFavorite(id, currentUser.id);
+            await db.addFavorite(id, currentUser.id).catch(() => {});
         }
     }, 
     handleArticleUpdate: (updated: Article) => {
