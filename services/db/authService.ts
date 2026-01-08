@@ -8,19 +8,20 @@ export const ensureUserExists = async (user: User) => {
             id: user.id,
             username: user.username,
             avatar: user.avatar
-        }, { onConflict: 'id' });
+        });
         
-        if (error) console.error("Errore sync utente:", error);
+        if (error) {
+            console.error("[AuthService] Errore sync utente (upsert):", error.message);
+        }
     } catch (e) {
-        console.error("Eccezione sync utente:", e);
+        console.error("[AuthService] Eccezione sync utente:", e);
     }
 };
 
 export const signUpWithEmail = async (email: string, password: string) => {
     const username = email.split('@')[0];
-    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`;
+    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`;
 
-    // 1. Registrazione Auth
     const { data, error: authError } = await supabase.auth.signUp({ 
         email, 
         password,
@@ -34,13 +35,13 @@ export const signUpWithEmail = async (email: string, password: string) => {
 
     if (authError) return { data, error: authError };
 
-    // 2. Scrittura Profilo DB immediata
     if (data.user) {
-        await ensureUserExists({
+        // Tentiamo la creazione del profilo, ma non blocchiamo se fallisce (es. RLS senza sessione attiva)
+        ensureUserExists({
             id: data.user.id,
             username: username,
             avatar: avatarUrl
-        });
+        }).catch(() => {});
     }
 
     return { data, error: null };
@@ -48,10 +49,8 @@ export const signUpWithEmail = async (email: string, password: string) => {
 
 export const signInWithEmail = async (email: string, password: string) => {
     const response = await supabase.auth.signInWithPassword({ email, password });
-    
     if (response.error) {
-        console.error("Errore Supabase SignIn:", response.error.message);
-        return response;
+        console.error("[AuthService] Errore Supabase SignIn:", response.error.message);
     }
     return response;
 };
@@ -70,22 +69,27 @@ export const signInWithProvider = async (provider: 'google') => {
 
 export const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) console.error("Errore logout supabase:", error);
+    if (error) console.error("[AuthService] Errore logout supabase:", error.message);
     return { error };
 };
 
 export const getCurrentUserProfile = async (): Promise<User | null> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user) return null;
 
-    const userProfile: User = {
-        id: user.id,
-        username: user.user_metadata.full_name || user.email?.split('@')[0] || 'Utente',
-        avatar: user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
-    };
+        const userProfile: User = {
+            id: user.id,
+            username: user.user_metadata.full_name || user.email?.split('@')[0] || 'Utente',
+            avatar: user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
+        };
 
-    // Assicuriamo che esista nella tabella pubblica 'users'
-    await ensureUserExists(userProfile);
+        // Assicuriamo che esista nella tabella pubblica 'users'
+        await ensureUserExists(userProfile);
 
-    return userProfile;
+        return userProfile;
+    } catch (e) {
+        console.error("[AuthService] Errore recupero profilo:", e);
+        return null;
+    }
 };
