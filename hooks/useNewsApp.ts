@@ -23,7 +23,6 @@ export const useNewsApp = () => {
 
   useEffect(() => {
     if (!initialLoadTriggered.current) {
-        console.log("[App] Boot: Avvio caricamento iniziale.");
         initialLoadTriggered.current = true;
         const firstCat = DEFAULT_CATEGORIES[0];
         fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
@@ -42,14 +41,12 @@ export const useNewsApp = () => {
                     setFavoriteArticleIds(ids);
                 }
             }
-        } catch (e) {
-            console.warn("[App] Errore verifica utente:", e);
-        }
+        } catch (e) {}
     };
     checkUser();
 
-    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string) => {
+        if (event === 'SIGNED_IN') {
             const user = await db.getCurrentUserProfile();
             setCurrentUser(user);
             setShowLoginModal(false);
@@ -74,39 +71,37 @@ export const useNewsApp = () => {
     setLoading(true);
     setNotification(null);
     
-    console.log(`[App] fetchNewsForCategory: Avvio ricerca per ${catLabel} (${catId})`);
+    console.log(`[NewsApp] Avvio caricamento per: ${catLabel}`);
     
     try {
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel, catId);
             if (cached && cached.length > 0) {
-                console.log(`[App] TROVATI ${cached.length} articoli nel DB. Aggiorno lo stato.`);
+                console.log(`[NewsApp] OK: Mostro ${cached.length} articoli dal DB.`);
                 setArticles(cached); 
                 setLoading(false); 
                 isFetchingRef.current = false;
                 return; 
-            } else {
-                console.log(`[App] Nessun articolo nel DB per ${catLabel}. Procedo con l'AI.`);
             }
+            console.log(`[NewsApp] DB vuoto per ${catLabel}, chiedo all'AI...`);
         }
 
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
-            console.log(`[App] Ricevuti ${aiArticles.length} articoli dall'AI.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[App] Errore salvataggio cache:", e));
+            db.saveArticles(catLabel, aiArticles).catch(() => {});
         } else {
-            const fallbackCached = await db.getCachedArticles(catLabel, catId);
-            if (fallbackCached.length > 0) {
-                setArticles(fallbackCached);
+            const fallback = await db.getCachedArticles(catLabel, catId);
+            if (fallback.length > 0) {
+                setArticles(fallback);
             } else {
-                setNotification("Spiacenti, non abbiamo trovato notizie positive per questa categoria.");
+                setNotification("Nessuna notizia trovata al momento.");
             }
         }
     } catch (error: any) {
-        console.error("[App] Errore fatale:", error.message);
-        setNotification("Problema tecnico nel caricamento delle notizie.");
+        console.error("[NewsApp] Errore fetch:", error);
+        setNotification("Errore di connessione.");
     } finally {
         setLoading(false);
         isFetchingRef.current = false;
@@ -115,85 +110,51 @@ export const useNewsApp = () => {
 
   const handleCategoryChange = (catId: string) => {
     if (activeCategoryId === catId && !showFavoritesOnly) return;
-    
     setActiveCategoryId(catId);
     setShowFavoritesOnly(false);
-    setArticles([]); 
-    
     const cat = categories.find(c => c.id === catId);
     if (cat) fetchNewsForCategory(catId, cat.label, cat.value, false); 
   };
 
   const handleRefresh = () => {
       const cat = categories.find(c => c.id === activeCategoryId);
-      if (cat) {
-          setArticles([]); 
-          fetchNewsForCategory(activeCategoryId, cat.label, cat.value, true);
-      }
+      if (cat) fetchNewsForCategory(activeCategoryId, cat.label, cat.value, true);
   };
 
   const handleArticleUpdate = (updatedArticle: Article) => {
-    setArticles(prev => prev.map(a => {
-        if (updatedArticle.id && a.id === updatedArticle.id) return updatedArticle;
-        if (updatedArticle.url && a.url === updatedArticle.url) return { ...updatedArticle, id: a.id || updatedArticle.id };
-        return a;
-    }));
-    if (selectedArticle && (selectedArticle.id === updatedArticle.id || selectedArticle.url === updatedArticle.url)) {
-        setSelectedArticle(updatedArticle);
-    }
+    setArticles(prev => prev.map(a => (a.url === updatedArticle.url || a.id === updatedArticle.id) ? { ...a, ...updatedArticle } : a));
   };
 
   const handleToggleFavorite = async (article: Article) => {
     if (!currentUser) { setShowLoginModal(true); return; }
-    
-    let articleId = article.id;
-    let articleToUpdate = { ...article };
-
-    if (!articleId) {
-        try {
-            const saved = await db.saveArticles(article.category || 'Generale', [article]);
-            if (saved && saved.length > 0) {
-                articleId = saved[0].id;
-                articleToUpdate = saved[0];
-            }
-        } catch (e) {
-            console.error("[App] Errore salvataggio preferito:", e);
-            return;
-        }
+    let id = article.id;
+    if (!id) {
+        const saved = await db.saveArticles(article.category, [article]);
+        if (saved.length > 0) id = saved[0].id;
     }
-    
-    if (!articleId) return;
+    if (!id) return;
 
-    const isCurrentlyFav = favoriteArticleIds.has(articleId);
-    
+    const isFav = favoriteArticleIds.has(id);
     try {
-        if (isCurrentlyFav) {
-            setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(articleId!); return n; });
-            await db.removeFavorite(articleId, currentUser.id);
+        if (isFav) {
+            setFavoriteArticleIds(p => { const n = new Set(p); n.delete(id!); return n; });
+            await db.removeFavorite(id, currentUser.id);
         } else {
-            setFavoriteArticleIds(prev => new Set(prev).add(articleId!));
-            await db.addFavorite(articleId, currentUser.id);
+            setFavoriteArticleIds(p => new Set(p).add(id!));
+            await db.addFavorite(id, currentUser.id);
         }
-        handleArticleUpdate(articleToUpdate);
-    } catch (e) {
-        console.error("Errore toggle preferito:", e);
-    }
+    } catch (e) {}
   };
 
   return {
     categories, activeCategoryId, articles, activeCategoryLabel: categories.find(c => c.id === activeCategoryId)?.label,
     loading, selectedArticle, showLoginModal, showFavoritesOnly, currentUser, favoriteArticleIds, notification,
     setActiveCategoryId: handleCategoryChange, setSelectedArticle, setShowLoginModal, setShowFavoritesOnly,
-    handleLogin: async () => {}, 
-    handleLogout: async () => { 
-        setCurrentUser(null); 
-        setFavoriteArticleIds(new Set()); 
-        setShowFavoritesOnly(false); 
-        await db.signOut(); 
-    },
+    handleLogin: () => setShowLoginModal(true), 
+    handleLogout: () => db.signOut(),
     handleAddCategory: async (l: string) => {
         if (!currentUser) { setShowLoginModal(true); return; }
-        const n = await db.addCategory(l, `${l} notizie positive`, currentUser.id);
+        const n = await db.addCategory(l, l, currentUser.id);
         if (n) { setCategories(p => [...p, n]); handleCategoryChange(n.id); }
     },
     loadNews: handleRefresh,
