@@ -19,7 +19,8 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
             .order('created_at', { ascending: false })
             .limit(20);
 
-        const response: any = await Promise.race([queryPromise, timeout(5000)]);
+        // Aumentato timeout a 10s
+        const response: any = await Promise.race([queryPromise, timeout(10000)]);
         const { data, error } = response;
 
         if (error) {
