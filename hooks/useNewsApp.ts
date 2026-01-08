@@ -8,7 +8,7 @@ export const useNewsApp = () => {
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [activeCategoryId, setActiveCategoryId] = useState<string>(DEFAULT_CATEGORIES[0].id); 
   const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(false); // Cambiato a false per default
+  const [loading, setLoading] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false); 
   
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -31,18 +31,23 @@ export const useNewsApp = () => {
     }
   }, []);
 
-  // 2. Gestione Autenticazione con Timeout di sicurezza
+  // 2. Gestione Autenticazione con Timeout di sicurezza e logging
   useEffect(() => {
     const initAuth = async () => {
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("AUTH_TIMEOUT")), 3000));
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("AUTH_TIMEOUT")), 5000));
         
         try {
-            const { data: { session } } = await Promise.race([
+            console.log("[Auth] Inizializzazione sessione...");
+            const { data, error: sessionError } = await Promise.race([
                 supabase.auth.getSession(),
                 timeoutPromise
             ]) as any;
             
+            if (sessionError) throw sessionError;
+            
+            const session = data?.session;
             if (session?.user) {
+                console.log("[Auth] Sessione trovata per:", session.user.email);
                 const profile = await db.getCurrentUserProfile();
                 if (profile) {
                     setCurrentUser(profile);
@@ -50,10 +55,11 @@ export const useNewsApp = () => {
                     setFavoriteArticleIds(ids);
                 }
             } else {
+                console.log("[Auth] Nessuna sessione attiva.");
                 setCurrentUser(null);
             }
         } catch (e) {
-            console.warn("Auth init slow or failed, proceeding as guest:", e);
+            console.error("[Auth] Errore inizializzazione lenta o fallita:", e);
         } finally {
             setAuthInitialized(true);
         }
@@ -62,6 +68,7 @@ export const useNewsApp = () => {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log("[Auth] Evento cambiamento stato:", event);
         if (event === 'SIGNED_IN') {
             if (session?.user) {
                 const profile = await db.getCurrentUserProfile();
@@ -76,6 +83,8 @@ export const useNewsApp = () => {
             setCurrentUser(null);
             setFavoriteArticleIds(new Set());
             setShowFavoritesOnly(false);
+        } else if (event === 'INITIAL_SESSION') {
+             // Gestito già da initAuth, ma utile per debug
         }
     });
 
@@ -90,7 +99,6 @@ export const useNewsApp = () => {
     try {
         if (!forceAi) {
             const cached = await db.getCachedArticles(catLabel, catId);
-            // Se c'è un'altra richiesta più recente in corso, fermati
             if (currentFetchId !== fetchCounterRef.current) return;
             
             if (cached && cached.length > 0) {
@@ -102,22 +110,27 @@ export const useNewsApp = () => {
 
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
-        // Controllo critico: se l'utente ha cambiato categoria o cliccato di nuovo, scarta i risultati vecchi
         if (currentFetchId !== fetchCounterRef.current) return;
 
         if (aiArticles && aiArticles.length > 0) {
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
             db.saveArticles(catLabel, aiArticles).catch(() => {});
         } else {
-            setNotification("Nessuna nuova notizia trovata al momento.");
+            setNotification("Nessuna nuova notizia trovata al momento. Mostro quelle salvate.");
             const fallback = await db.getCachedArticles(catLabel, catId);
             if (fallback.length > 0) setArticles(fallback);
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Fetch error:", error);
-        setNotification("Impossibile caricare le notizie. Riprova tra poco.");
+        if (error.message === "API_KEY_MISSING") {
+             setNotification("Configura la chiave API di Google per sbloccare l'IA.");
+        } else {
+             setNotification("Impossibile caricare le notizie aggiornate. Riprova tra poco.");
+        }
+        // Fallback su cache in caso di errore
+        const fallback = await db.getCachedArticles(catLabel, catId);
+        if (fallback.length > 0) setArticles(fallback);
     } finally {
-        // Solo l'ultima operazione può resettare lo stato di loading
         if (currentFetchId === fetchCounterRef.current) {
             setLoading(false);
         }
@@ -135,8 +148,6 @@ export const useNewsApp = () => {
   return {
     categories, activeCategoryId, articles, 
     activeCategoryLabel: categories.find(c => c.id === activeCategoryId)?.label,
-    // Il loading globale dell'app considera l'inizializzazione auth
-    // Ma il loading delle operazioni specifiche (spinner tasto) usa solo 'loading'
     isAppLoading: !authInitialized,
     loading, 
     selectedArticle, showLoginModal, showFavoritesOnly, currentUser, 
