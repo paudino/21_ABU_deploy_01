@@ -10,23 +10,28 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
     const cleanLabel = categoryLabel ? categoryLabel.trim() : '';
     const cleanId = categoryId ? categoryId.trim() : '';
     
-    console.log(`[DB-Service] Tentativo recupero cache per Label: "${cleanLabel}" o ID: "${cleanId}"`);
+    console.log(`[DB-Service] Ricerca articoli per - Label: "${cleanLabel}", ID: "${cleanId}"`);
 
     try {
-        // Query più flessibile: cerca sia per Label che per ID (se fornito)
-        let query = supabase
-          .from('articles')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(20);
+        let query = supabase.from('articles').select('*');
 
-        if (cleanLabel && cleanId) {
-            query = query.or(`category.ilike.%${cleanLabel}%,category.eq.${cleanId}`);
-        } else if (cleanLabel) {
-            query = query.ilike('category', `%${cleanLabel}%`);
+        // Costruiamo un filtro OR robusto che copra tutte le possibilità di salvataggio
+        const filterParts = [];
+        if (cleanLabel) {
+            filterParts.push(`category.ilike.%${cleanLabel}%`);
+            filterParts.push(`category.eq."${cleanLabel}"`);
+        }
+        if (cleanId) {
+            filterParts.push(`category.eq."${cleanId}"`);
         }
 
-        const { data, error } = await query;
+        if (filterParts.length > 0) {
+            query = query.or(filterParts.join(','));
+        }
+
+        const { data, error } = await query
+            .order('created_at', { ascending: false })
+            .limit(40);
 
         if (error) {
             console.error("[DB-Service] Errore query Supabase:", error.message);
@@ -34,42 +39,45 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
         }
 
         if (!data || data.length === 0) {
-            console.log("[DB-Service] Nessun dato trovato in cache per i criteri specificati.");
+            console.warn(`[DB-Service] Nessun articolo trovato per "${cleanLabel}/${cleanId}". Verificare RLS o nomi tabelle.`);
             return [];
         }
         
         console.log(`[DB-Service] Successo: Trovati ${data.length} articoli.`);
         
-        // Mapping ultra-robusto: se un campo fallisce, non blocca l'intero array
+        // Mapping ultra-robusto per prevenire crash da dati nulli/inaspettati
         return data.map((a: any) => {
             try {
+                // Gestione flessibile della data
                 let formattedDate = a.published_date || a.date;
                 if (!formattedDate && a.created_at) {
                     formattedDate = new Date(a.created_at).toISOString().split('T')[0];
+                } else if (!formattedDate) {
+                    formattedDate = new Date().toISOString().split('T')[0];
                 }
 
                 return {
                     id: a.id,
-                    title: a.title || 'Senza Titolo',
-                    summary: a.summary || 'Nessun riassunto disponibile.',
-                    source: a.source || 'Fonte Sconosciuta',
+                    title: String(a.title || 'Senza Titolo'),
+                    summary: String(a.summary || 'Nessun riassunto disponibile.'),
+                    source: String(a.source || 'Fonte Sconosciuta'),
                     url: a.url,
-                    date: formattedDate || new Date().toISOString().split('T')[0],
-                    category: a.category,
+                    date: formattedDate,
+                    category: a.category || cleanLabel,
                     imageUrl: a.image_url || '',
                     audioBase64: a.audio_base64 || '',
-                    sentimentScore: a.sentiment_score || 0.85,
+                    sentimentScore: Number(a.sentiment_score || 0.85),
                     likeCount: 0,
                     dislikeCount: 0
                 };
             } catch (err) {
-                console.warn("[DB-Service] Errore mapping singolo articolo:", err);
+                console.error("[DB-Service] Errore mapping record:", a.id, err);
                 return null;
             }
         }).filter(Boolean) as Article[];
 
     } catch (e: any) {
-        console.error("[DB-Service] Eccezione fatale fetch cache:", e.message);
+        console.error("[DB-Service] Eccezione fatale nel recupero cache:", e.message);
         return [];
     }
 };
@@ -77,16 +85,16 @@ export const getCachedArticles = async (categoryLabel: string, categoryId?: stri
 export const saveArticles = async (categoryLabel: string, articles: Article[]): Promise<Article[]> => {
     if (!articles || articles.length === 0) return [];
     
-    console.log(`[DB-Service] Salvataggio di ${articles.length} articoli.`);
+    console.log(`[DB-Service] Salvataggio di ${articles.length} articoli per ${categoryLabel}.`);
     const savedArticles: Article[] = [];
-    const cleanCategory = (categoryLabel || 'Generale').trim();
 
     for (const article of articles) {
         if (!article.url) continue;
 
+        // Salviamo usando sia la Label che l'ID per coerenza futura
         const row = {
             url: article.url, 
-            category: article.category || cleanCategory,
+            category: article.category || categoryLabel,
             title: article.title,
             summary: article.summary,
             source: article.source,
@@ -104,13 +112,10 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                 .single();
 
             if (data) {
-                savedArticles.push({
-                    ...article,
-                    id: data.id
-                });
+                savedArticles.push({ ...article, id: data.id });
             }
         } catch (e) {
-            console.warn("[DB-Service] Upsert fallito:", article.url);
+            console.warn("[DB-Service] Upsert fallito per:", article.url);
         }
     }
     
