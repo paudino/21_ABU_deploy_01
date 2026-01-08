@@ -21,17 +21,15 @@ export const useNewsApp = () => {
   const initialLoadTriggered = useRef(false);
   const isFetchingRef = useRef(false);
 
-  // 1. CARICAMENTO IMMEDIATO
   useEffect(() => {
     if (!initialLoadTriggered.current) {
-        console.log("[NewsApp] Boot: Avvio caricamento iniziale.");
+        console.log("[App] Boot: Avvio caricamento iniziale.");
         initialLoadTriggered.current = true;
         const firstCat = DEFAULT_CATEGORIES[0];
         fetchNewsForCategory(firstCat.id, firstCat.label, firstCat.value, false);
     }
   }, []);
 
-  // 2. MONITORAGGIO AUTH
   useEffect(() => {
     const checkUser = async () => {
         try {
@@ -45,7 +43,7 @@ export const useNewsApp = () => {
                 }
             }
         } catch (e) {
-            console.warn("[NewsApp] Errore verifica utente:", e);
+            console.warn("[App] Errore verifica utente:", e);
         }
     };
     checkUser();
@@ -69,7 +67,6 @@ export const useNewsApp = () => {
     return () => { subscription.unsubscribe(); };
   }, []);
 
-  // Caricamento Notizie
   const fetchNewsForCategory = async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
     if (isFetchingRef.current) return;
     
@@ -77,27 +74,29 @@ export const useNewsApp = () => {
     setLoading(true);
     setNotification(null);
     
+    console.log(`[App] fetchNewsForCategory: Avvio ricerca per ${catLabel} (${catId})`);
+    
     try {
         if (!forceAi) {
-            // Cerchiamo nel DB usando sia il Label che l'ID per sicurezza
             const cached = await db.getCachedArticles(catLabel, catId);
             if (cached && cached.length > 0) {
-                console.log(`[NewsApp] Caricati ${cached.length} articoli dalla cache.`);
+                console.log(`[App] TROVATI ${cached.length} articoli nel DB. Aggiorno lo stato.`);
                 setArticles(cached); 
                 setLoading(false); 
                 isFetchingRef.current = false;
                 return; 
+            } else {
+                console.log(`[App] Nessun articolo nel DB per ${catLabel}. Procedo con l'AI.`);
             }
         }
 
-        // Se non ci sono dati in cache o abbiamo forzato l'AI
         const aiArticles = await fetchPositiveNews(catValue, catLabel);
         
         if (aiArticles && aiArticles.length > 0) {
+            console.log(`[App] Ricevuti ${aiArticles.length} articoli dall'AI.`);
             setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[NewsApp] Errore salvataggio cache:", e));
+            db.saveArticles(catLabel, aiArticles).catch(e => console.warn("[App] Errore salvataggio cache:", e));
         } else {
-            // Se Gemini fallisce, proviamo comunque a caricare ciò che abbiamo nel DB come ultima risorsa
             const fallbackCached = await db.getCachedArticles(catLabel, catId);
             if (fallbackCached.length > 0) {
                 setArticles(fallbackCached);
@@ -106,7 +105,7 @@ export const useNewsApp = () => {
             }
         }
     } catch (error: any) {
-        console.error("[NewsApp] Errore fatale fetch:", error.message);
+        console.error("[App] Errore fatale:", error.message);
         setNotification("Problema tecnico nel caricamento delle notizie.");
     } finally {
         setLoading(false);
@@ -158,7 +157,7 @@ export const useNewsApp = () => {
                 articleToUpdate = saved[0];
             }
         } catch (e) {
-            console.error("[NewsApp] Errore salvataggio preferito:", e);
+            console.error("[App] Errore salvataggio preferito:", e);
             return;
         }
     }
