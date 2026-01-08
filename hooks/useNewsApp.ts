@@ -34,7 +34,8 @@ export const useNewsApp = () => {
   // 2. Gestione Autenticazione con Timeout di sicurezza e logging
   useEffect(() => {
     const initAuth = async () => {
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("AUTH_TIMEOUT")), 5000));
+        // Aumentato timeout a 10 secondi per maggiore resilienza
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("AUTH_TIMEOUT")), 10000));
         
         try {
             console.log("[Auth] Inizializzazione sessione...");
