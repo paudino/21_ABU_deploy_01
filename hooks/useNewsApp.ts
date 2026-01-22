@@ -17,7 +17,8 @@ export const useNewsApp = () => {
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
 
-  const initialLoadDone = useRef(false);
+  // Utilizziamo un ref per tracciare se le categorie sono già state caricate con successo
+  const categoriesLoaded = useRef(false);
 
   const loadFavorites = useCallback(async (userId: string) => {
     console.log("[HOOK-FLOW] ❤️ Caricamento preferiti per utente:", userId);
@@ -80,11 +81,14 @@ export const useNewsApp = () => {
         if (user) {
           const ids = await db.getUserFavoritesIds(user.id);
           setFavoriteArticleIds(ids);
+          // Se l'utente entra, forziamo un ricaricamento delle categorie per includere quelle private
+          categoriesLoaded.current = false;
         }
       } else if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         setFavoriteArticleIds(new Set());
         setShowFavoritesOnly(false);
+        categoriesLoaded.current = false;
       }
     });
     db.getCurrentUserProfile().then(setCurrentUser);
@@ -94,8 +98,8 @@ export const useNewsApp = () => {
   // Startup & View Logic
   useEffect(() => {
     const init = async () => {
-      if (initialLoadDone.current) return;
-      initialLoadDone.current = true;
+      // Evitiamo ricaricamenti inutili se le categorie sono già presenti
+      if (categoriesLoaded.current) return;
       
       console.log("[HOOK-FLOW] 🛠️ STEP 1: Avvio inizializzazione app...");
       
@@ -112,15 +116,16 @@ export const useNewsApp = () => {
         const finalCats = (dbCats && dbCats.length > 0) ? dbCats : DEFAULT_CATEGORIES;
         console.log(`[HOOK-FLOW] 🛠️ STEP 3: Categorie finali caricate (${finalCats.length}).`);
         setCategories(finalCats);
+        categoriesLoaded.current = true;
         
-        const startCat = finalCats[0];
-        if (startCat) {
-          console.log(`[HOOK-FLOW] 🏁 STEP 4: Imposto categoria iniziale: "${startCat.label}"`);
-          setActiveCategoryId(startCat.id);
-          fetchNewsForCategory(startCat.id, startCat.label, startCat.value, false);
-        } else {
-          console.error("[HOOK-FLOW] ❌ ERRORE: Nessuna categoria disponibile dopo init!");
-          setLoading(false);
+        // Carichiamo le notizie solo se non siamo già in modalità preferiti
+        if (!showFavoritesOnly) {
+          const currentCat = finalCats.find(c => c.id === activeCategoryId) || finalCats[0];
+          if (currentCat) {
+            console.log(`[HOOK-FLOW] 🏁 STEP 4: Imposto categoria: "${currentCat.label}"`);
+            if (!activeCategoryId) setActiveCategoryId(currentCat.id);
+            fetchNewsForCategory(currentCat.id, currentCat.label, currentCat.value, false);
+          }
         }
       } catch (err) {
         console.error("[HOOK-FLOW] ❌ Eccezione durante l'inizializzazione:", err);
@@ -128,16 +133,14 @@ export const useNewsApp = () => {
       }
     };
     init();
-  }, [currentUser, fetchNewsForCategory]);
+  }, [currentUser, activeCategoryId, showFavoritesOnly, fetchNewsForCategory]);
 
+  // Gestione specifica della vista preferiti
   useEffect(() => {
     if (showFavoritesOnly && currentUser) {
       loadFavorites(currentUser.id);
-    } else if (!showFavoritesOnly && activeCategoryId) {
-      const cat = categories.find(c => c.id === activeCategoryId);
-      if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, false);
     }
-  }, [showFavoritesOnly, currentUser, activeCategoryId, categories, loadFavorites, fetchNewsForCategory]);
+  }, [showFavoritesOnly, currentUser, loadFavorites]);
 
   return {
     categories,
@@ -186,15 +189,12 @@ export const useNewsApp = () => {
 
       const isFav = favoriteArticleIds.has(id);
       if (isFav) {
-        // RIMOZIONE
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
         if (showFavoritesOnly) {
-          // Se siamo nella vista preferiti, rimuoviamo l'articolo dalla lista visualizzata
           setArticles(prev => prev.filter(a => a.id !== id));
         }
         await db.removeFavorite(id, currentUser.id);
       } else {
-        // AGGIUNTA
         setFavoriteArticleIds(prev => new Set(prev).add(id!));
         await db.addFavorite(id, currentUser.id);
       }
