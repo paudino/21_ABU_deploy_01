@@ -1,4 +1,3 @@
-
 // Fix: React is the default export from the 'react' package, so it must not be imported within curly braces.
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
