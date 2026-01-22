@@ -4,49 +4,68 @@ import { Category, DEFAULT_CATEGORIES } from '../../types';
 
 /**
  * Recupera le categorie.
- * - Se userId è null: Recupera solo le categorie pubbliche (user_id IS NULL)
- * - Se userId è presente: Recupera (user_id IS NULL) OR (user_id == userId)
  */
 export const getCategories = async (userId?: string): Promise<Category[]> => {
-    let query = supabase
-      .from('categories')
-      .select('*')
-      .order('created_at', { ascending: true });
+    console.log(`[DB-CATS] 📡 Avvio query categorie. UserID: ${userId || 'Pubblico'}`);
+    
+    try {
+        let query = supabase
+          .from('categories')
+          .select('*')
+          .order('created_at', { ascending: true });
 
-    if (userId) {
-        // Sintassi Supabase per OR: user_id.is.null,user_id.eq.UUID
-        query = query.or(`user_id.is.null,user_id.eq.${userId}`);
-    } else {
-        query = query.is('user_id', null);
-    }
-    
-    const { data, error } = await query;
-    
-    if (error) {
-        console.error("Errore fetch categorie:", error);
+        if (userId) {
+            query = query.or(`user_id.is.null,user_id.eq.${userId}`);
+        } else {
+            query = query.is('user_id', null);
+        }
+        
+        const { data, error } = await query;
+        
+        if (error) {
+            console.error("[DB-CATS] ❌ Errore query Supabase:", error.message, error.details);
+            return [];
+        }
+
+        console.log(`[DB-CATS] ✅ Query completata. Trovate ${data?.length || 0} categorie.`);
+        return (data || []) as Category[];
+    } catch (e) {
+        console.error("[DB-CATS] ❌ Eccezione imprevista:", e);
         return [];
     }
-    return data as Category[];
 };
 
 export const seedCategories = async (): Promise<void> => {
-    const { count } = await supabase.from('categories').select('*', { count: 'exact', head: true });
-    if (count === 0) {
-      // Inserisce le categorie di default come Pubbliche (user_id non specificato = NULL)
-      const categoriesToInsert = DEFAULT_CATEGORIES.map(c => ({ label: c.label, value: c.value }));
-      await supabase.from('categories').insert(categoriesToInsert);
+    console.log("[DB-CATS] 🌱 Controllo se necessario il seeding delle categorie...");
+    try {
+        const { count, error } = await supabase
+            .from('categories')
+            .select('*', { count: 'exact', head: true });
+        
+        if (error) {
+            console.error("[DB-CATS] ❌ Errore durante il conteggio per seeding:", error.message);
+            return;
+        }
+
+        if (count === 0) {
+            console.log("[DB-CATS] 🔨 Database vuoto. Inserimento categorie di default...");
+            const categoriesToInsert = DEFAULT_CATEGORIES.map(c => ({ 
+                label: c.label, 
+                value: c.value 
+            }));
+            const { error: insertError } = await supabase.from('categories').insert(categoriesToInsert);
+            if (insertError) console.error("[DB-CATS] ❌ Errore inserimento seeding:", insertError.message);
+            else console.log("[DB-CATS] ✅ Seeding completato con successo.");
+        } else {
+            console.log(`[DB-CATS] ✨ Seeding non necessario, presenti ${count} categorie.`);
+        }
+    } catch (e) {
+        console.error("[DB-CATS] ❌ Eccezione durante il seeding:", e);
     }
 };
 
-/**
- * Aggiunge una categoria personale per l'utente loggato.
- */
 export const addCategory = async (label: string, value: string, userId: string): Promise<Category | null> => {
-    if (!userId) {
-        console.error("Tentativo di aggiungere categoria senza userId");
-        return null;
-    }
-
+    console.log(`[DB-CATS] ➕ Aggiunta categoria privata: "${label}" per user ${userId}`);
     const { data, error } = await supabase
       .from('categories')
       .insert([{ label, value, user_id: userId }])
@@ -54,7 +73,7 @@ export const addCategory = async (label: string, value: string, userId: string):
       .single();
       
     if (error) {
-        console.error("Errore aggiunta categoria:", error);
+        console.error("[DB-CATS] ❌ Errore aggiunta categoria:", error.message);
         return null;
     }
     return data as Category;
