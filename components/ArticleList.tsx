@@ -1,3 +1,4 @@
+
 // Fix: React must be imported to use JSX and React.FC
 import React, { useEffect } from 'react';
 import { Article, User } from '../types';
@@ -172,10 +173,10 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                   <div 
                     key={`${article.url}-${idx}`} 
                     onClick={() => onArticleClick(article)}
-                    className={`group bg-white/90 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 cursor-pointer flex flex-col h-full 
+                    className={`group bg-gradient-to-br from-white via-white/95 to-indigo-50/20 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:shadow-joy-500/10 hover:-translate-y-2 transition-all duration-500 cursor-pointer flex flex-col h-full 
                       ${article.isNew 
                           ? 'border-2 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.25)] relative z-10' 
-                          : 'border border-white/60 hover:shadow-joy-500/20'
+                          : 'border border-white/80'
                       }`}
                   >
                     <div className="h-48 bg-slate-100 rounded-t-2xl overflow-hidden relative">
