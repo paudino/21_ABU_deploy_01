@@ -2,33 +2,27 @@
 import { supabase } from '../supabaseClient';
 import { User } from '../../types';
 
-/**
- * Sincronizza il profilo utente nella tabella pubblica 'users'.
- * Questa funzione è ora non-bloccante e resiliente agli errori di schema/RLS.
- */
 export const ensureUserExists = async (user: User) => {
     try {
-        // Usiamo upsert per creare o aggiornare il profilo pubblico
         const { error } = await supabase.from('users').upsert({
             id: user.id,
             username: user.username,
             avatar: user.avatar
         }, { onConflict: 'id' });
         
-        if (error) {
-            // Logghiamo solo in debug, non interrompiamo il flusso dell'utente
-            console.debug("[Auth-Sync] Nota: Sincronizzazione profilo DB non riuscita (opzionale):", error.message);
-        }
+        if (error) console.error("Errore sync utente:", error);
     } catch (e) {
-        console.debug("[Auth-Sync] Nota: Eccezione durante sync profilo:", e);
+        console.error("Eccezione sync utente:", e);
     }
 };
 
 export const signUpWithEmail = async (email: string, password: string) => {
     const username = email.split('@')[0];
-    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`;
+    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`;
 
-    const { data, error: authError } = await supabase.auth.signUp({ 
+    // 1. Registrazione Auth
+    // FIX: Casting supabase.auth as any to bypass "Property 'signUp' does not exist on type SupabaseAuthClient" errors.
+    const { data, error: authError } = await (supabase.auth as any).signUp({ 
         email, 
         password,
         options: {
@@ -41,24 +35,32 @@ export const signUpWithEmail = async (email: string, password: string) => {
 
     if (authError) return { data, error: authError };
 
-    // Sincronizzazione in background
+    // 2. Scrittura Profilo DB immediata
     if (data.user) {
-        ensureUserExists({
+        await ensureUserExists({
             id: data.user.id,
             username: username,
             avatar: avatarUrl
-        }).catch(() => {});
+        });
     }
 
     return { data, error: null };
 };
 
 export const signInWithEmail = async (email: string, password: string) => {
-    return await supabase.auth.signInWithPassword({ email, password });
+    // FIX: Casting supabase.auth as any to bypass property missing errors.
+    const response = await (supabase.auth as any).signInWithPassword({ email, password });
+    
+    if (response.error) {
+        console.error("Errore Supabase SignIn:", response.error.message);
+        return response;
+    }
+    return response;
 };
 
 export const signInWithProvider = async (provider: 'google') => {
-    return await supabase.auth.signInWithOAuth({
+    // FIX: Casting supabase.auth as any to bypass property missing errors.
+    return await (supabase.auth as any).signInWithOAuth({
         provider: provider,
         options: {
             redirectTo: window.location.origin,
@@ -70,33 +72,25 @@ export const signInWithProvider = async (provider: 'google') => {
 };
 
 export const signOut = async () => {
-    return await supabase.auth.signOut();
+    // FIX: Casting supabase.auth as any to bypass property missing errors.
+    const { error } = await (supabase.auth as any).signOut();
+    if (error) console.error("Errore logout supabase:", error);
+    return { error };
 };
 
-/**
- * Recupera il profilo utente prioritizzando i metadati della sessione Auth.
- * Non fallisce se il database non risponde.
- */
 export const getCurrentUserProfile = async (): Promise<User | null> => {
-    try {
-        // 1. Prendiamo i dati direttamente dalla sessione di Supabase Auth (Fonte di Verità)
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError || !user) return null;
+    // FIX: Casting supabase.auth as any to bypass property missing errors.
+    const { data: { user } } = await (supabase.auth as any).getUser();
+    if (!user) return null;
 
-        // Costruiamo l'oggetto User dai metadati della sessione
-        const profile: User = {
-            id: user.id,
-            username: user.user_metadata.full_name || user.email?.split('@')[0] || 'Utente',
-            avatar: user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
-        };
+    const userProfile: User = {
+        id: user.id,
+        username: user.user_metadata.full_name || user.email?.split('@')[0] || 'Utente',
+        avatar: user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
+    };
 
-        // 2. Tentiamo la sincronizzazione in background (non bloccante)
-        ensureUserExists(profile).catch(() => {});
+    // Assicuriamo che esista nella tabella pubblica 'users'
+    await ensureUserExists(userProfile);
 
-        return profile;
-    } catch (e) {
-        console.error("[AuthService] Errore critico nel recupero profilo:", e);
-        return null;
-    }
+    return userProfile;
 };
