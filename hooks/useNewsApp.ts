@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
