@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { ArticleList } from './components/ArticleList';
@@ -8,15 +8,14 @@ import { LoginModal } from './components/LoginModal';
 import { DailyDeed } from './components/DailyDeed';
 import { ArticleDetail } from './components/ArticleDetail';
 import { useNewsApp } from './hooks/useNewsApp';
-import { ensureApiKey } from './services/gemini/client';
 
 function App() {
+  // Utilizziamo l'hook personalizzato per tutta la logica di stato
   const {
     categories,
     activeCategoryId,
     articles,
     activeCategoryLabel,
-    isAppLoading,
     loading,
     selectedArticle,
     showLoginModal,
@@ -28,7 +27,6 @@ function App() {
     setSelectedArticle,
     setShowLoginModal,
     setShowFavoritesOnly,
-    handleLogin,
     handleLogout,
     handleAddCategory,
     loadNews,
@@ -37,31 +35,10 @@ function App() {
     handleArticleUpdate
   } = useNewsApp();
 
-  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    // Controllo preventivo della chiave API per evitare errori a catena
-    const checkKey = async () => {
-        const ok = await ensureApiKey();
-        setHasApiKey(ok);
-    };
-    checkKey();
-  }, []);
-
-  // Se l'app sta inizializzando l'auth, mostriamo un caricamento a schermo intero
-  if (isAppLoading) {
-    return (
-      <div className="min-h-screen bg-joy-50 flex flex-col items-center justify-center">
-         <div className="w-16 h-16 border-4 border-joy-200 border-t-joy-500 rounded-full animate-spin mb-4"></div>
-         <p className="text-joy-700 font-display font-bold">L'angolo del Buon Umore si sta preparando...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen relative font-sans text-slate-900 flex flex-col">
       
-      {/* Sfondo Immagine Fisso */}
+      {/* Sfondo Immagine Fisso che emana positività */}
       <div className="fixed inset-0 z-[-1]">
         <img 
           src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2073&auto=format&fit=crop" 
@@ -80,7 +57,7 @@ function App() {
         onLogout={handleLogout}
       />
 
-      {/* Barra Categorie */}
+      {/* Barra Categorie - SEMPRE VISIBILE */}
       <CategoryBar 
         categories={categories}
         activeCategory={showFavoritesOnly ? '' : activeCategoryId}
@@ -89,26 +66,8 @@ function App() {
         onAddCategory={handleAddCategory}
       />
 
-      {/* Avviso Chiave API mancante (Solo se rilevata come assente) */}
-      {hasApiKey === false && (
-          <div className="max-w-4xl mx-auto px-4 mt-4">
-              <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl flex items-center justify-between text-amber-900 text-sm font-medium animate-pulse">
-                  <div className="flex items-center gap-2">
-                      <span className="text-xl">⚠️</span>
-                      <span>Configurazione AI incompleta. Clicca sul Sole nell'header per attivare le citazioni e l'audio.</span>
-                  </div>
-                  <button 
-                    onClick={() => (window as any).aistudio?.openSelectKey()} 
-                    className="bg-amber-600 text-white px-4 py-1.5 rounded-lg hover:bg-amber-700 transition"
-                  >
-                    Configura
-                  </button>
-              </div>
-          </div>
-      )}
-
-      {/* Sfida del Giorno */}
-      {!showFavoritesOnly && currentUser && (
+      {/* Sfida del Giorno - Visibile per TUTTI quando non si è nei preferiti */}
+      {!showFavoritesOnly && (
          <DailyDeed />
       )}
 
@@ -136,7 +95,6 @@ function App() {
       {showLoginModal && (
         <LoginModal 
           onClose={() => setShowLoginModal(false)}
-          onLogin={handleLogin}
         />
       )}
 
