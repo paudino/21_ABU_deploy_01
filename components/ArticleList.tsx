@@ -1,5 +1,6 @@
 
-import { useEffect } from 'react';
+// Fix: React must be imported to use JSX and React.FC
+import React, { useEffect } from 'react';
 import { Article, User } from '../types';
 import { IconHeart, IconRefresh, IconMicrophoneOn, IconMicOff, IconX, IconThumbUp, IconThumbDown } from './Icons';
 import { generateArticleImage } from '../services/geminiService';
@@ -250,7 +251,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                                    if (onToggleFavorite && currentUser) onToggleFavorite(article);
                                  }}
                                  className={`
-                                   p-2 rounded-full transition-all duration-300 transform active:scale-90
+                                   p-2 rounded-full transition-all duration-300 transform active-scale-90
                                    ${isFav 
                                       ? 'text-red-500 bg-red-50 hover:bg-red-100 border border-red-100' 
                                       : 'text-slate-400 hover:text-red-500 hover:bg-slate-50'
