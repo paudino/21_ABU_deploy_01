@@ -40,18 +40,15 @@ export const useNewsApp = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. CARICAMENTO CATEGORIE (Solo all'avvio o cambio utente)
+  // 2. CARICAMENTO CATEGORIE
   useEffect(() => {
     const loadCategories = async () => {
       console.log("[HOOK-FLOW] 🛠️ Inizio caricamento categorie...");
       try {
         let dbCats = await db.getCategories(currentUser?.id);
-        
-        // Se il database è vuoto o fallisce, usiamo i default e proviamo il seeding in background
         if (!dbCats || dbCats.length === 0) {
-          console.log("[HOOK-FLOW] ⚠️ Database categorie vuoto, uso default.");
           setCategories(DEFAULT_CATEGORIES);
-          db.seedCategories(); // Seeding silenzioso
+          db.seedCategories();
         } else {
           setCategories(dbCats);
         }
@@ -63,11 +60,15 @@ export const useNewsApp = () => {
     loadCategories();
   }, [currentUser?.id]);
 
-  // 3. IMPOSTAZIONE CATEGORIA INIZIALE
+  // 3. IMPOSTAZIONE CATEGORIA INIZIALE E RE-INIZIALIZZAZIONE
   useEffect(() => {
-    if (categories.length > 0 && !activeCategoryId && !showFavoritesOnly) {
-      console.log(`[HOOK-FLOW] 🏁 Imposto categoria iniziale: ${categories[0].label}`);
-      setActiveCategoryId(categories[0].id);
+    // Se non abbiamo una categoria attiva e abbiamo le categorie, o se la categoria attiva non è più valida
+    if (categories.length > 0) {
+      const isValid = categories.some(c => c.id === activeCategoryId);
+      if (!activeCategoryId || (!isValid && !showFavoritesOnly)) {
+        console.log(`[HOOK-FLOW] 🏁 Imposto/Ripristino categoria: ${categories[0].label}`);
+        setActiveCategoryId(categories[0].id);
+      }
     }
   }, [categories, activeCategoryId, showFavoritesOnly]);
 
@@ -89,7 +90,6 @@ export const useNewsApp = () => {
       const aiArticles = await fetchPositiveNews(catValue, catLabel);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        // Salvataggio asincrono
         db.saveArticles(catLabel, aiArticles).then(saved => {
           if (saved && saved.length > 0) {
               setArticles(current => {
@@ -108,20 +108,36 @@ export const useNewsApp = () => {
     }
   }, []);
 
-  // 5. EFFETTO REATTIVO CARICAMENTO NOTIZIE
+  // 5. EFFETTO REATTIVO CARICAMENTO NOTIZIE (Logica di transizione migliorata)
   useEffect(() => {
-    if (showFavoritesOnly && currentUser) {
-      console.log("[HOOK-FLOW] ❤️ Vista preferiti attiva.");
-      setLoading(true);
-      db.getUserFavoriteArticles(currentUser.id).then(favs => {
-        setArticles(favs);
-        setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
+    if (showFavoritesOnly) {
+      if (currentUser) {
+        console.log("[HOOK-FLOW] ❤️ Caricamento preferiti...");
+        setLoading(true);
+        db.getUserFavoriteArticles(currentUser.id).then(favs => {
+          setArticles(favs);
+          setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
+          setLoading(false);
+        }).catch(() => setLoading(false));
+      } else {
+        setArticles([]);
         setLoading(false);
-      });
-    } else if (!showFavoritesOnly && activeCategoryId && categories.length > 0) {
-      const cat = categories.find(c => c.id === activeCategoryId);
-      if (cat) {
-        fetchNewsForCategory(cat.id, cat.label, cat.value, false);
+      }
+    } else {
+      // Vista normale: carichiamo solo se abbiamo una categoria attiva
+      if (activeCategoryId && categories.length > 0) {
+        const cat = categories.find(c => c.id === activeCategoryId);
+        if (cat) {
+          fetchNewsForCategory(cat.id, cat.label, cat.value, false);
+        } else {
+          // Stato transitorio: stiamo ancora allineando activeCategoryId tramite l'effetto 3
+          setLoading(true);
+        }
+      } else if (categories.length === 0) {
+        setLoading(true);
+      } else {
+        // Abbiamo le categorie ma non ancora l'ID attivo (attesa effetto 3)
+        setLoading(true);
       }
     }
   }, [showFavoritesOnly, currentUser, activeCategoryId, categories, fetchNewsForCategory]);
@@ -184,9 +200,7 @@ export const useNewsApp = () => {
       }
     },
     handleArticleUpdate: (updated: Article) => {
-      // Aggiorna la lista principale
       setArticles(prev => prev.map(a => (a.id === updated.id || a.url === updated.url) ? updated : a));
-      // Aggiorna l'articolo selezionato (se è quello attualmente aperto)
       setSelectedArticle(prev => (prev && (prev.id === updated.id || prev.url === updated.url)) ? updated : prev);
     }
   };
