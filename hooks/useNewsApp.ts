@@ -17,48 +17,86 @@ export const useNewsApp = () => {
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Utilizziamo un ref per tracciare se le categorie sono già state caricate con successo
-  const categoriesLoaded = useRef(false);
+  // 1. GESTIONE AUTENTICAZIONE
+  useEffect(() => {
+    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
+      console.log(`[AUTH-EVENT] 🔑 Stato Auth: ${event}`);
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        const user = await db.getCurrentUserProfile();
+        setCurrentUser(user);
+        setShowLoginModal(false);
+        if (user) {
+          const ids = await db.getUserFavoritesIds(user.id);
+          setFavoriteArticleIds(ids);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        setFavoriteArticleIds(new Set());
+        setShowFavoritesOnly(false);
+      }
+    });
 
-  const loadFavorites = useCallback(async (userId: string) => {
-    console.log("[HOOK-FLOW] ❤️ Caricamento preferiti per utente:", userId);
-    setLoading(true);
-    try {
-      const favArticles = await db.getUserFavoriteArticles(userId);
-      setArticles(favArticles);
-      setFavoriteArticleIds(new Set(favArticles.map(a => a.id).filter(Boolean) as string[]));
-    } catch (e) {
-      console.error("[HOOK-FLOW] ❌ Errore preferiti:", e);
-    } finally {
-      setLoading(false);
-    }
+    db.getCurrentUserProfile().then(setCurrentUser);
+    return () => subscription.unsubscribe();
   }, []);
 
+  // 2. CARICAMENTO CATEGORIE (Solo all'avvio o cambio utente)
+  useEffect(() => {
+    const loadCategories = async () => {
+      console.log("[HOOK-FLOW] 🛠️ Inizio caricamento categorie...");
+      try {
+        let dbCats = await db.getCategories(currentUser?.id);
+        
+        // Se il database è vuoto o fallisce, usiamo i default e proviamo il seeding in background
+        if (!dbCats || dbCats.length === 0) {
+          console.log("[HOOK-FLOW] ⚠️ Database categorie vuoto, uso default.");
+          setCategories(DEFAULT_CATEGORIES);
+          db.seedCategories(); // Seeding silenzioso
+        } else {
+          setCategories(dbCats);
+        }
+      } catch (err) {
+        console.error("[HOOK-FLOW] ❌ Errore critico categorie:", err);
+        setCategories(DEFAULT_CATEGORIES);
+      }
+    };
+    loadCategories();
+  }, [currentUser?.id]);
+
+  // 3. IMPOSTAZIONE CATEGORIA INIZIALE
+  useEffect(() => {
+    if (categories.length > 0 && !activeCategoryId && !showFavoritesOnly) {
+      console.log(`[HOOK-FLOW] 🏁 Imposto categoria iniziale: ${categories[0].label}`);
+      setActiveCategoryId(categories[0].id);
+    }
+  }, [categories, activeCategoryId, showFavoritesOnly]);
+
+  // 4. FUNZIONE CORE CARICAMENTO NOTIZIE
   const fetchNewsForCategory = useCallback(async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    console.log(`[HOOK-FLOW] 📡 FETCH NEWS -> Categoria: "${catLabel}", Forza AI: ${forceAi}`);
+    console.log(`[HOOK-FLOW] 📡 FETCH NEWS -> Categoria: "${catLabel}"`);
     setLoading(true);
     setNotification(null);
     try {
       if (!forceAi) {
-        console.log(`[HOOK-FLOW] 🔎 Cerco notizie in cache per "${catLabel}"...`);
         const cached = await db.getCachedArticles(catLabel);
         if (cached && cached.length > 0) {
-          console.log(`[HOOK-FLOW] ✅ Cache trovata: ${cached.length} articoli.`);
           setArticles(cached); 
           setLoading(false); 
           return; 
         }
-        console.log(`[HOOK-FLOW] 💨 Cache vuota per "${catLabel}". Richiedo a Gemini.`);
       }
 
       const aiArticles = await fetchPositiveNews(catValue, catLabel);
-      if (aiArticles.length > 0) {
+      if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
+        // Salvataggio asincrono
         db.saveArticles(catLabel, aiArticles).then(saved => {
-          setArticles(current => {
-            const idMap = new Map(saved.map(s => [s.url, s.id]));
-            return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
-          });
+          if (saved && saved.length > 0) {
+              setArticles(current => {
+                const idMap = new Map(saved.map(s => [s.url, s.id]));
+                return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
+              });
+          }
         });
       } else {
         setNotification(forceAi ? "Nessuna nuova notizia trovata." : "Archivio vuoto.");
@@ -70,77 +108,23 @@ export const useNewsApp = () => {
     }
   }, []);
 
-  // Sync Auth State
-  useEffect(() => {
-    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-      console.log(`[AUTH-EVENT] 🔑 Stato Auth: ${event}`);
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        const user = await db.getCurrentUserProfile();
-        setCurrentUser(user);
-        setShowLoginModal(false);
-        if (user) {
-          const ids = await db.getUserFavoritesIds(user.id);
-          setFavoriteArticleIds(ids);
-          // Se l'utente entra, forziamo un ricaricamento delle categorie per includere quelle private
-          categoriesLoaded.current = false;
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setCurrentUser(null);
-        setFavoriteArticleIds(new Set());
-        setShowFavoritesOnly(false);
-        categoriesLoaded.current = false;
-      }
-    });
-    db.getCurrentUserProfile().then(setCurrentUser);
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Startup & View Logic
-  useEffect(() => {
-    const init = async () => {
-      // Evitiamo ricaricamenti inutili se le categorie sono già presenti
-      if (categoriesLoaded.current) return;
-      
-      console.log("[HOOK-FLOW] 🛠️ STEP 1: Avvio inizializzazione app...");
-      
-      try {
-        console.log("[HOOK-FLOW] 🛠️ STEP 2: Richiesta categorie al database...");
-        let dbCats = await db.getCategories(currentUser?.id);
-        
-        if (!dbCats || dbCats.length === 0) {
-          console.log("[HOOK-FLOW] 🛠️ STEP 2b: Categorie non trovate, provo seeding...");
-          await db.seedCategories();
-          dbCats = await db.getCategories(currentUser?.id);
-        }
-
-        const finalCats = (dbCats && dbCats.length > 0) ? dbCats : DEFAULT_CATEGORIES;
-        console.log(`[HOOK-FLOW] 🛠️ STEP 3: Categorie finali caricate (${finalCats.length}).`);
-        setCategories(finalCats);
-        categoriesLoaded.current = true;
-        
-        // Carichiamo le notizie solo se non siamo già in modalità preferiti
-        if (!showFavoritesOnly) {
-          const currentCat = finalCats.find(c => c.id === activeCategoryId) || finalCats[0];
-          if (currentCat) {
-            console.log(`[HOOK-FLOW] 🏁 STEP 4: Imposto categoria: "${currentCat.label}"`);
-            if (!activeCategoryId) setActiveCategoryId(currentCat.id);
-            fetchNewsForCategory(currentCat.id, currentCat.label, currentCat.value, false);
-          }
-        }
-      } catch (err) {
-        console.error("[HOOK-FLOW] ❌ Eccezione durante l'inizializzazione:", err);
-        setLoading(false);
-      }
-    };
-    init();
-  }, [currentUser, activeCategoryId, showFavoritesOnly, fetchNewsForCategory]);
-
-  // Gestione specifica della vista preferiti
+  // 5. EFFETTO REATTIVO CARICAMENTO NOTIZIE
   useEffect(() => {
     if (showFavoritesOnly && currentUser) {
-      loadFavorites(currentUser.id);
+      console.log("[HOOK-FLOW] ❤️ Vista preferiti attiva.");
+      setLoading(true);
+      db.getUserFavoriteArticles(currentUser.id).then(favs => {
+        setArticles(favs);
+        setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
+        setLoading(false);
+      });
+    } else if (!showFavoritesOnly && activeCategoryId && categories.length > 0) {
+      const cat = categories.find(c => c.id === activeCategoryId);
+      if (cat) {
+        fetchNewsForCategory(cat.id, cat.label, cat.value, false);
+      }
     }
-  }, [showFavoritesOnly, currentUser, loadFavorites]);
+  }, [showFavoritesOnly, currentUser, activeCategoryId, categories, fetchNewsForCategory]);
 
   return {
     categories,
