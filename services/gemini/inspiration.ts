@@ -3,41 +3,50 @@ import { getClient } from './client';
 import { Quote } from '../../types';
 import { Type } from "@google/genai";
 
+/**
+ * Genera una citazione ispirazionale pulendo eventuali residui di testo o markdown.
+ */
 export const generateInspirationalQuote = async (): Promise<Quote | null> => {
   const ai = getClient();
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "Genera una citazione famosa, positiva e ispirante in italiano.",
+      contents: "Genera una citazione famosa, positiva e ispirante in italiano. Rispondi solo in JSON.",
       config: { 
         responseMimeType: "application/json",
-        // Definizione dello schema di risposta per garantire un output JSON valido e strutturato
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             text: {
               type: Type.STRING,
-              description: 'Il corpo del testo della citazione.',
+              description: 'Testo della citazione.',
             },
             author: {
               type: Type.STRING,
-              description: 'L\'autore originale della citazione.',
+              description: 'Autore della citazione.',
             },
           },
           required: ["text", "author"],
-          propertyOrdering: ["text", "author"],
         }
       }
     });
 
-    // Estrazione del testo dalla risposta della generazione
-    const data = JSON.parse(response.text || "{}");
+    const text = response.text || "{}";
+    
+    // Pulizia robusta del JSON nel caso Gemini aggiunga ```json o altro testo
+    let cleanedJson = text;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        cleanedJson = jsonMatch[0];
+    }
+
+    const data = JSON.parse(cleanedJson);
     if (data.text && data.author) {
       return { id: '', text: data.text, author: data.author };
     }
     return null;
   } catch (error) {
-    console.error("Errore Quote:", error);
+    console.error("Errore Quote Gemini:", error);
     return null;
   }
 };
@@ -47,10 +56,9 @@ export const generateGoodDeed = async (): Promise<string | null> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "Suggerisci una piccola buona azione da fare oggi (max 10 parole).",
+      contents: "Suggerisci una piccola buona azione da fare oggi (max 10 parole). Rispondi solo in JSON.",
       config: { 
         responseMimeType: "application/json",
-        // Definizione dello schema di risposta per garantire un output JSON valido e strutturato
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -64,10 +72,17 @@ export const generateGoodDeed = async (): Promise<string | null> => {
       }
     });
 
-    const data = JSON.parse(response.text || "{}");
+    const text = response.text || "{}";
+    let cleanedJson = text;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        cleanedJson = jsonMatch[0];
+    }
+
+    const data = JSON.parse(cleanedJson);
     return data.text || null;
   } catch (error) {
-    console.error("Errore Deed:", error);
+    console.error("Errore Deed Gemini:", error);
     return null;
   }
 };
