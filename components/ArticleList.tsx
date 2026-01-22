@@ -1,4 +1,3 @@
-
 // Fix: React must be imported to use JSX and React.FC
 import React, { useEffect } from 'react';
 import { Article, User } from '../types';
