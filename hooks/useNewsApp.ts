@@ -117,7 +117,6 @@ export const useNewsApp = () => {
         if (startCat) {
           console.log(`[HOOK-FLOW] 🏁 STEP 4: Imposto categoria iniziale: "${startCat.label}"`);
           setActiveCategoryId(startCat.id);
-          // Avviamo il caricamento notizie
           fetchNewsForCategory(startCat.id, startCat.label, startCat.value, false);
         } else {
           console.error("[HOOK-FLOW] ❌ ERRORE: Nessuna categoria disponibile dopo init!");
@@ -187,9 +186,15 @@ export const useNewsApp = () => {
 
       const isFav = favoriteArticleIds.has(id);
       if (isFav) {
+        // RIMOZIONE
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
+        if (showFavoritesOnly) {
+          // Se siamo nella vista preferiti, rimuoviamo l'articolo dalla lista visualizzata
+          setArticles(prev => prev.filter(a => a.id !== id));
+        }
         await db.removeFavorite(id, currentUser.id);
       } else {
+        // AGGIUNTA
         setFavoriteArticleIds(prev => new Set(prev).add(id!));
         await db.addFavorite(id, currentUser.id);
       }
