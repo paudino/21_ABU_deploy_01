@@ -27,7 +27,7 @@ const formatDate = (dateString: string) => {
 export const ArticleDetail: React.FC<ArticleDetailProps> = ({ 
   article, currentUser, isFavorite, onClose, onLoginRequest, onToggleFavorite, onUpdate 
 }) => {
-  // Stati Contatori (Globali)
+  // Stati Contatori (Globali - visibili a tutti)
   const [likeCount, setLikeCount] = useState(article.likeCount || 0);
   const [dislikeCount, setDislikeCount] = useState(article.dislikeCount || 0);
 
@@ -47,6 +47,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   // Ref per tenere traccia dell'ID articolo (potrebbe essere creato al volo)
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
+  const initialSyncDone = useRef(false);
 
   // Helper per aggiornare il padre (ArticleList)
   const updateParent = (id: string, lCount: number, dCount: number) => {
@@ -63,30 +64,25 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   // 1. CARICAMENTO DATI INIZIALI
   useEffect(() => {
     const loadInteractionData = async () => {
-      console.log(`[LOGICA-VOTO] Inizio caricamento dati per: ${article.title}`);
+      if (!articleIdRef.current) return;
       
-      // Se l'articolo è nuovo (non ha ID), i contatori rimangono quelli passati (solitamente 0)
-      if (!articleIdRef.current) {
-          console.log(`[LOGICA-VOTO] Articolo non salvato su DB. Uso contatori iniziali.`);
-          return;
-      }
-
       const id = articleIdRef.current;
       
       try {
-        // A) Carica Contatori Globali dal Database
+        // A) Carica Contatori Globali dal Database (per tutti)
         const [lCount, dCount] = await Promise.all([
            db.getLikeCount(id),
            db.getDislikeCount(id)
         ]);
         
-        console.log(`[LOGICA-VOTO] Contatori dal DB -> Like: ${lCount}, Dislike: ${dCount}`);
         setLikeCount(lCount);
         setDislikeCount(dCount);
         
-        // SINCRONIZZAZIONE IMMEDIATA CON IL GENITORE
-        // Questo assicura che alla chiusura della modale, la lista mostri i dati freschi del DB
-        updateParent(id, lCount, dCount);
+        // SINCRONIZZAZIONE CON IL GENITORE (solo se i dati differiscono)
+        if (!initialSyncDone.current && (lCount !== article.likeCount || dCount !== article.dislikeCount)) {
+            updateParent(id, lCount, dCount);
+            initialSyncDone.current = true;
+        }
         
         // B) Carica Stato Utente (Solo se loggato)
         if (currentUser) {
@@ -94,7 +90,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
             db.hasUserLiked(id, currentUser.id),
             db.hasUserDisliked(id, currentUser.id)
           ]);
-          console.log(`[LOGICA-VOTO] Stato Utente -> Ha messo Like: ${liked}, Ha messo Dislike: ${disliked}`);
           setUserHasLiked(liked);
           setUserHasDisliked(disliked);
         }
@@ -108,7 +103,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
     };
 
     loadInteractionData();
-  }, [article.id, currentUser]); 
+  }, [article.id, currentUser, article.likeCount, article.dislikeCount]); 
 
   const loadComments = async (artId: string) => {
       setLoadingComments(true);
@@ -125,14 +120,11 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   // Helper: Assicura che l'articolo abbia un ID nel DB
   const ensureArticleSaved = async (): Promise<string | null> => {
       if (articleIdRef.current) return articleIdRef.current;
-
-      console.log("[LOGICA-VOTO] Salvataggio preventivo articolo per ottenere ID...");
       try {
           const saved = await db.saveArticles(article.category || 'Generale', [article]);
           if (saved && saved.length > 0) {
               const newId = saved[0].id;
               articleIdRef.current = newId; 
-              console.log(`[LOGICA-VOTO] Articolo salvato. Nuovo ID: ${newId}`);
               return newId || null;
           }
       } catch (e) {
@@ -155,7 +147,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
       const wasDisliked = userHasDisliked;
       const newLikedState = !wasLiked;
 
-      // 1. Aggiornamento Ottimistico UI Locale
+      // Aggiornamento Ottimistico UI Locale
       setUserHasLiked(newLikedState);
       setLikeCount(prev => newLikedState ? prev + 1 : Math.max(0, prev - 1));
       if (newLikedState && wasDisliked) {
@@ -163,7 +155,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           setDislikeCount(prev => Math.max(0, prev - 1));
       }
 
-      // 2. Operazione DB
       try {
           const targetId = await ensureArticleSaved();
           if (!targetId) throw new Error("Impossibile ottenere ID articolo");
@@ -181,13 +172,12 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           if (resultIsLiked) setUserHasDisliked(false);
 
           updateParent(targetId, realLikeCount, realDislikeCount);
-
       } catch (error) {
-          console.error("[LOGICA-VOTO] ERRORE operazione Like:", error);
+          console.error("[LOGICA-VOTO] ERRORE Like:", error);
           setUserHasLiked(wasLiked);
           setUserHasDisliked(wasDisliked);
-          setLikeCount(prev => wasLiked ? prev + 1 : prev - 1);
-          if (newLikedState && wasDisliked) setDislikeCount(prev => prev + 1);
+          setLikeCount(article.likeCount || 0);
+          setDislikeCount(article.dislikeCount || 0);
       } finally {
           loadingRef.current = false;
       }
@@ -231,13 +221,12 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           if (resultIsDisliked) setUserHasLiked(false);
 
           updateParent(targetId, realLikeCount, realDislikeCount);
-
       } catch (error) {
-          console.error("[LOGICA-VOTO] ERRORE operazione Dislike:", error);
+          console.error("[LOGICA-VOTO] ERRORE Dislike:", error);
           setUserHasDisliked(wasDisliked);
           setUserHasLiked(wasLiked);
-          setDislikeCount(prev => wasDisliked ? prev + 1 : prev - 1);
-          if (newDislikedState && wasLiked) setDislikeCount(prev => prev + 1);
+          setLikeCount(article.likeCount || 0);
+          setDislikeCount(article.dislikeCount || 0);
       } finally {
           loadingRef.current = false;
       }
@@ -260,29 +249,21 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           setNewComment('');
       } catch (e) {
           console.error("Errore invio commento", e);
-          alert("Impossibile inviare il commento. Riprova.");
       } finally {
           setSubmittingComment(false);
       }
   };
 
-  // Cancellazione Effettiva (dopo conferma)
   const performDeleteComment = async (commentId: string) => {
       if (!currentUser) return;
-      
-      // Resetta stato UI
       setDeletingCommentId(null);
-      
-      // UI Optimistic update
       const prevComments = [...comments];
       setComments(prev => prev.filter(c => c.id !== commentId));
-
       try {
           await db.deleteComment(commentId, currentUser.id);
       } catch (e) {
           console.error("Errore cancellazione", e);
-          setComments(prevComments); // Rollback
-          alert("Errore durante la cancellazione.");
+          setComments(prevComments); 
       }
   };
 
@@ -295,7 +276,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
         
         {/* Immagine Header */}
         <div className="relative h-64 md:h-96 w-full bg-slate-200">
-          <img src={article.imageUrl || `https://picsum.photos/seed/${article.title}/600/400`} className="w-full h-full object-cover"/>
+          <img src={article.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} className="w-full h-full object-cover" alt={article.title} />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-6 pt-24">
             <h1 className="text-2xl md:text-4xl font-bold text-white">{article.title}</h1>
           </div>
@@ -324,9 +305,8 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                 </a>
             </div>
 
-            {/* SEZIONE INTERAZIONE (Like/Dislike/Fav) */}
+            {/* SEZIONE INTERAZIONE */}
             <div className="flex flex-wrap items-center gap-4 border-t border-b py-6 mb-8">
-              
               <Tooltip content={currentUser ? "Mi piace" : "Accedi per votare"}>
                   <button 
                     onClick={handleLike}
@@ -385,7 +365,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                    Commenti
                </h3>
                
-               {/* Area Input */}
                <div className="flex gap-4 mb-8">
                     <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden">
                         {currentUser ? (
@@ -408,7 +387,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                                     <button 
                                         onClick={handlePostComment}
                                         disabled={!newComment.trim() || submittingComment}
-                                        className="bg-joy-500 text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-joy-600 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
+                                        className="bg-joy-500 text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-joy-600 disabled:opacity-50 transition shadow-sm"
                                     >
                                         {submittingComment ? 'Invio...' : 'Invia'}
                                     </button>
@@ -425,12 +404,11 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                     </div>
                </div>
 
-               {/* Lista Commenti */}
                <div className="space-y-6">
                     {loadingComments ? (
                         <p className="text-center text-slate-400 py-4 italic">Caricamento commenti...</p>
                     ) : comments.length === 0 ? (
-                        <p className="text-center text-slate-400 py-4 border border-dashed rounded-xl">Nessun commento ancora. Sii il primo!</p>
+                        <p className="text-center text-slate-400 py-4 border border-dashed rounded-xl font-sans">Nessun commento ancora. Sii il primo!</p>
                     ) : (
                         comments.map(comment => (
                             <div key={comment.id} className="flex gap-4 animate-in fade-in slide-in-from-bottom-2">
@@ -443,40 +421,22 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                                 </div>
                                 <div className="flex-1 bg-white p-4 rounded-xl rounded-tl-none border border-slate-100 shadow-sm relative group">
                                     <div className="flex justify-between items-start mb-1">
-                                        <span className="font-bold text-slate-800 text-sm">{comment.username}</span>
-                                        <span className="text-xs text-slate-400">
+                                        <span className="font-bold text-slate-800 text-sm font-sans">{comment.username}</span>
+                                        <span className="text-xs text-slate-400 font-sans">
                                             {new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(comment.timestamp))}
                                         </span>
                                     </div>
-                                    <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-line">{comment.text}</p>
+                                    <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-line font-sans">{comment.text}</p>
                                     
                                     {currentUser && currentUser.id === comment.userId && (
                                         <div className="absolute bottom-3 right-3">
                                             {deletingCommentId === comment.id ? (
-                                                <div className="flex items-center gap-2 bg-white shadow-sm border border-slate-100 rounded-full px-2 py-1 animate-in fade-in slide-in-from-right-2">
-                                                    <button 
-                                                        onClick={() => performDeleteComment(comment.id)}
-                                                        className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition"
-                                                        title="Conferma eliminazione"
-                                                    >
-                                                        <IconCheck className="w-4 h-4" />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => setDeletingCommentId(null)}
-                                                        className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-full transition"
-                                                        title="Annulla"
-                                                    >
-                                                        <IconX className="w-4 h-4" />
-                                                    </button>
+                                                <div className="flex items-center gap-2 bg-white shadow-sm border border-slate-100 rounded-full px-2 py-1">
+                                                    <button onClick={() => performDeleteComment(comment.id)} className="text-emerald-500 hover:text-emerald-700 p-1 transition"><IconCheck className="w-4 h-4" /></button>
+                                                    <button onClick={() => setDeletingCommentId(null)} className="text-red-500 hover:text-red-700 p-1 transition"><IconX className="w-4 h-4" /></button>
                                                 </div>
                                             ) : (
-                                                <button 
-                                                    onClick={() => setDeletingCommentId(comment.id)}
-                                                    className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1"
-                                                    title="Elimina commento"
-                                                >
-                                                    <IconTrash className="w-4 h-4" />
-                                                </button>
+                                                <button onClick={() => setDeletingCommentId(comment.id)} className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1"><IconTrash className="w-4 h-4" /></button>
                                             )}
                                         </div>
                                     )}
@@ -486,7 +446,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                     )}
                </div>
             </div>
-
           </div>
         </div>
       </div>
