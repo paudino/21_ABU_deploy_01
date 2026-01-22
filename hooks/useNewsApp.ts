@@ -24,54 +24,46 @@ export const useNewsApp = () => {
     setLoading(true);
     try {
       const favArticles = await db.getUserFavoriteArticles(userId);
-      console.log(`[HOOK-FLOW] ✅ Trovati ${favArticles.length} preferiti.`);
       setArticles(favArticles);
       setFavoriteArticleIds(new Set(favArticles.map(a => a.id).filter(Boolean) as string[]));
     } catch (e) {
       console.error("[HOOK-FLOW] ❌ Errore preferiti:", e);
-      setNotification("Impossibile caricare i preferiti.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   const fetchNewsForCategory = useCallback(async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    console.log(`[HOOK-FLOW] 🆕 Richiesta notizie per categoria: "${catLabel}" (Forza AI: ${forceAi})`);
+    console.log(`[HOOK-FLOW] 📡 FETCH NEWS -> Categoria: "${catLabel}", Forza AI: ${forceAi}`);
     setLoading(true);
     setNotification(null);
     try {
       if (!forceAi) {
-        console.log(`[HOOK-FLOW] 📦 Controllo cache database per: "${catLabel}"...`);
+        console.log(`[HOOK-FLOW] 🔎 Cerco notizie in cache per "${catLabel}"...`);
         const cached = await db.getCachedArticles(catLabel);
         if (cached && cached.length > 0) {
-          console.log(`[HOOK-FLOW] ⚡ Cache colpita! Mostro ${cached.length} articoli dal DB.`);
+          console.log(`[HOOK-FLOW] ✅ Cache trovata: ${cached.length} articoli.`);
           setArticles(cached); 
           setLoading(false); 
           return; 
         }
-        console.log(`[HOOK-FLOW] 💨 Cache vuota o non trovata per "${catLabel}". Richiedo intervento a Gemini AI.`);
+        console.log(`[HOOK-FLOW] 💨 Cache vuota per "${catLabel}". Richiedo a Gemini.`);
       }
 
       const aiArticles = await fetchPositiveNews(catValue, catLabel);
       if (aiArticles.length > 0) {
-        console.log(`[HOOK-FLOW] ✨ Gemini ha trovato ${aiArticles.length} notizie positive.`);
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        
-        console.log("[HOOK-FLOW] 💾 Invio articoli al DB per la cache futura...");
         db.saveArticles(catLabel, aiArticles).then(saved => {
-          console.log(`[HOOK-FLOW] 💾 Salvati con successo ${saved.length} articoli.`);
           setArticles(current => {
             const idMap = new Map(saved.map(s => [s.url, s.id]));
             return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
           });
         });
       } else {
-        console.warn("[HOOK-FLOW] ⚠️ Nessuna notizia restituita da Gemini.");
         setNotification(forceAi ? "Nessuna nuova notizia trovata." : "Archivio vuoto.");
       }
     } catch (error) {
-      console.error("[HOOK-FLOW] ❌ Errore fatale recupero notizie:", error);
-      setNotification("Errore nel recupero notizie.");
+      console.error("[HOOK-FLOW] ❌ Errore recupero notizie:", error);
     } finally {
       setLoading(false);
     }
@@ -79,10 +71,8 @@ export const useNewsApp = () => {
 
   // Sync Auth State
   useEffect(() => {
-    // FIX: Casting supabase.auth as any to resolve "onAuthStateChange does not exist on type SupabaseAuthClient" error.
-    // This happens due to potential type mismatches in the local environment's supabase-js definitions.
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-      console.log(`[AUTH-EVENT] 🔑 ${event}`);
+      console.log(`[AUTH-EVENT] 🔑 Stato Auth: ${event}`);
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         const user = await db.getCurrentUserProfile();
         setCurrentUser(user);
@@ -107,21 +97,35 @@ export const useNewsApp = () => {
       if (initialLoadDone.current) return;
       initialLoadDone.current = true;
       
-      console.log("[HOOK-FLOW] 🛠️ Inizializzazione App...");
-      let dbCats = await db.getCategories(currentUser?.id);
-      if (!dbCats || dbCats.length === 0) {
-        console.log("[HOOK-FLOW] 🔨 Database categorie vuoto. Eseguo seeding iniziale...");
-        await db.seedCategories();
-        dbCats = await db.getCategories(currentUser?.id);
-      }
-      const finalCats = dbCats.length > 0 ? dbCats : DEFAULT_CATEGORIES;
-      setCategories(finalCats);
+      console.log("[HOOK-FLOW] 🛠️ STEP 1: Avvio inizializzazione app...");
       
-      const startCat = finalCats[0];
-      if (startCat) {
-        console.log(`[HOOK-FLOW] 🏁 Categoria iniziale: ${startCat.label}`);
-        setActiveCategoryId(startCat.id);
-        fetchNewsForCategory(startCat.id, startCat.label, startCat.value, false);
+      try {
+        console.log("[HOOK-FLOW] 🛠️ STEP 2: Richiesta categorie al database...");
+        let dbCats = await db.getCategories(currentUser?.id);
+        
+        if (!dbCats || dbCats.length === 0) {
+          console.log("[HOOK-FLOW] 🛠️ STEP 2b: Categorie non trovate, provo seeding...");
+          await db.seedCategories();
+          dbCats = await db.getCategories(currentUser?.id);
+        }
+
+        const finalCats = (dbCats && dbCats.length > 0) ? dbCats : DEFAULT_CATEGORIES;
+        console.log(`[HOOK-FLOW] 🛠️ STEP 3: Categorie finali caricate (${finalCats.length}).`);
+        setCategories(finalCats);
+        
+        const startCat = finalCats[0];
+        if (startCat) {
+          console.log(`[HOOK-FLOW] 🏁 STEP 4: Imposto categoria iniziale: "${startCat.label}"`);
+          setActiveCategoryId(startCat.id);
+          // Avviamo il caricamento notizie
+          fetchNewsForCategory(startCat.id, startCat.label, startCat.value, false);
+        } else {
+          console.error("[HOOK-FLOW] ❌ ERRORE: Nessuna categoria disponibile dopo init!");
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error("[HOOK-FLOW] ❌ Eccezione durante l'inizializzazione:", err);
+        setLoading(false);
       }
     };
     init();
@@ -153,14 +157,12 @@ export const useNewsApp = () => {
     setShowLoginModal,
     setShowFavoritesOnly,
     handleLogout: () => {
-      console.log("[AUTH-FLOW] 🚪 Logout eseguito.");
       setCurrentUser(null);
       setFavoriteArticleIds(new Set());
       db.signOut();
     },
     handleAddCategory: async (label: string) => {
       if (!currentUser) return setShowLoginModal(true);
-      console.log(`[HOOK-FLOW] ➕ Aggiunta categoria: ${label}`);
       const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
       if (cat) {
         setCategories(prev => [...prev, cat]);
@@ -169,10 +171,7 @@ export const useNewsApp = () => {
     },
     loadNews: () => {
       const cat = categories.find(c => c.id === activeCategoryId);
-      if (cat) {
-        console.log(`[HOOK-FLOW] 🔄 Refresh forzato richiesto per: ${cat.label}`);
-        fetchNewsForCategory(cat.id, cat.label, cat.value, true);
-      }
+      if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, true);
     },
     onImageGenerated: (url: string, img: string) => {
       setArticles(prev => prev.map(a => a.url === url ? { ...a, imageUrl: img } : a));
@@ -187,7 +186,6 @@ export const useNewsApp = () => {
       if (!id) return;
 
       const isFav = favoriteArticleIds.has(id);
-      console.log(`[HOOK-FLOW] ❤️ Toggle Preferito: ${id} (Attuale: ${isFav})`);
       if (isFav) {
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
         await db.removeFavorite(id, currentUser.id);
