@@ -6,7 +6,6 @@ import { Tooltip } from './Tooltip';
 
 interface LoginModalProps {
   onClose: () => void;
-  onLogin: () => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
