@@ -66,9 +66,9 @@ function App() {
         onAddCategory={handleAddCategory}
       />
 
-      {/* Sfida del Giorno - Visibile per TUTTI quando non si è nei preferiti */}
-      {!showFavoritesOnly && (
-         <DailyDeed />
+      {/* Sfida del Giorno - Visibile SOLO per utenti LOGGATI quando non si è nei preferiti */}
+      {!showFavoritesOnly && currentUser && (
+         <DailyDeed userId={currentUser.id} />
       )}
 
       {/* Contenuto Principale */}
