@@ -68,7 +68,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
     const timeout = setTimeout(() => {
         generateImages();
-    }, 1500);
+    }, 2000);
 
     return () => clearTimeout(timeout);
   }, [articles, loading, showFavoritesOnly, onImageGenerated]);
@@ -76,7 +76,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   const showSkeletons = loading && articles.length === 0;
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[60vh]">
         
       <div className="flex justify-between items-center mb-8 bg-white/60 backdrop-blur-sm p-4 rounded-2xl shadow-sm border border-white/50">
         <div>
@@ -84,7 +84,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                <div className="flex items-center gap-3">
                    <h2 className="text-2xl md:text-3xl font-display font-serif font-bold text-slate-800 tracking-tight">
                       <span className="text-red-500 mr-2">♥</span>
-                      I tuoi articoli preferiti
+                      I tuoi preferiti
                    </h2>
                    {onCloseFavorites && (
                        <button 
@@ -147,16 +147,16 @@ export const ArticleList: React.FC<ArticleListProps> = ({
         </div>
       ) : (
         <>
-          {articles.length === 0 ? (
-              <div className="text-center py-24 bg-white/50 backdrop-blur-sm rounded-3xl border border-dashed border-slate-300/50 mx-auto max-w-2xl">
+          {!loading && articles.length === 0 ? (
+              <div className="text-center py-24 bg-white/50 backdrop-blur-sm rounded-3xl border border-dashed border-slate-300/50 mx-auto max-w-2xl animate-in fade-in zoom-in-95 duration-500">
                 <div className="text-6xl mb-4">🌤️</div>
                 <h3 className="text-xl font-display font-serif font-bold text-slate-700 mb-2">
                     {showFavoritesOnly ? "Nessun preferito ancora" : "In attesa di buone nuove"}
                 </h3>
-                <p className="text-slate-500 text-lg mb-6 font-body font-sans">
+                <p className="text-slate-500 text-lg mb-6 font-body font-sans px-4">
                   {showFavoritesOnly 
                     ? "Salva le notizie che ti fanno sorridere per ritrovarle qui." 
-                    : "Non abbiamo trovato notizie recenti per questa categoria. Prova ad aggiornare!"}
+                    : "Stiamo preparando nuove storie positive per te. Prova ad aggiornare tra un istante!"}
                 </p>
                 {showFavoritesOnly && onCloseFavorites && (
                   <button onClick={onCloseFavorites} className="text-joy-600 hover:text-joy-700 font-bold hover:underline font-sans">
@@ -165,7 +165,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                 )}
               </div>
           ) : (
-            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-12 transition-opacity duration-300 ${loading ? 'opacity-70 grayscale-[30%]' : 'opacity-100'}`}>
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-12 transition-all duration-500 ${loading && articles.length > 0 ? 'opacity-50 grayscale-[20%]' : 'opacity-100'}`}>
               {articles.map((article, idx) => {
                 const isFav = article.id ? favoriteIds.has(article.id) : false;
                 
@@ -226,19 +226,14 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                                </Tooltip>
                                
                                <div className="flex items-center gap-3 text-slate-400 select-none">
-                                   <Tooltip content="Mi piace">
-                                       <div className="flex items-center gap-1">
-                                          <IconThumbUp className="w-4 h-4" />
-                                          <span className="text-xs font-bold">{article.likeCount || 0}</span>
-                                       </div>
-                                   </Tooltip>
-
-                                   <Tooltip content="Non mi piace">
-                                       <div className="flex items-center gap-1">
-                                          <IconThumbDown className="w-4 h-4" />
-                                          <span className="text-xs font-bold">{article.dislikeCount || 0}</span>
-                                       </div>
-                                   </Tooltip>
+                                   <div className="flex items-center gap-1">
+                                      <IconThumbUp className="w-4 h-4" />
+                                      <span className="text-xs font-bold">{article.likeCount || 0}</span>
+                                   </div>
+                                   <div className="flex items-center gap-1">
+                                      <IconThumbDown className="w-4 h-4" />
+                                      <span className="text-xs font-bold">{article.dislikeCount || 0}</span>
+                                   </div>
                                </div>
                           </div>
 
