@@ -47,7 +47,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 }) => {
 
   useEffect(() => {
-    if (loading || showFavoritesOnly) return;
+    if (loading || showFavoritesOnly || articles.length === 0) return;
 
     const generateImages = async () => {
         const articlesNeedingImage = articles.filter(a => !a.imageUrl);
@@ -68,7 +68,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
     const timeout = setTimeout(() => {
         generateImages();
-    }, 1000);
+    }, 1500);
 
     return () => clearTimeout(timeout);
   }, [articles, loading, showFavoritesOnly, onImageGenerated]);
@@ -167,8 +167,6 @@ export const ArticleList: React.FC<ArticleListProps> = ({
           ) : (
             <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-12 transition-opacity duration-300 ${loading ? 'opacity-70 grayscale-[30%]' : 'opacity-100'}`}>
               {articles.map((article, idx) => {
-                // BUG FIX: non usiamo più 'true' forzato se showFavoritesOnly è attivo.
-                // Usiamo il Set favoriteIds per determinare se il cuore è pieno o vuoto.
                 const isFav = article.id ? favoriteIds.has(article.id) : false;
                 
                 return (
@@ -251,7 +249,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                                    if (onToggleFavorite && currentUser) onToggleFavorite(article);
                                  }}
                                  className={`
-                                   p-2 rounded-full transition-all duration-300 transform active-scale-90
+                                   p-2 rounded-full transition-all duration-300 transform active:scale-90
                                    ${isFav 
                                       ? 'text-red-500 bg-red-50 hover:bg-red-100 border border-red-100' 
                                       : 'text-slate-400 hover:text-red-500 hover:bg-slate-50'
