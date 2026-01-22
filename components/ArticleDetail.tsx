@@ -1,3 +1,4 @@
+
 // Fix: React is the default export from the 'react' package, so it must not be imported within curly braces.
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
@@ -43,10 +44,9 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   // Stato per gestire quale commento è in fase di cancellazione
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
 
-  // Ref per tenere traccia dell'ID articolo (potrebbe essere creato al volo)
+  // Ref per tenere traccia dell'ID articolo
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
-  const initialSyncDone = useRef(false);
 
   // Helper per aggiornare il padre (ArticleList)
   const updateParent = (id: string, lCount: number, dCount: number) => {
@@ -60,49 +60,50 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
       }
   };
 
-  // 1. CARICAMENTO DATI INIZIALI
+  // 1. CARICAMENTO DATI INIZIALI (Dati cumulativi visibili a tutti)
   useEffect(() => {
     const loadInteractionData = async () => {
-      if (!articleIdRef.current) return;
+      // Se l'articolo non ha un ID, proviamo a salvarlo o cercarlo per URL per recuperare i contatori
+      let currentId = articleIdRef.current;
       
-      const id = articleIdRef.current;
+      // Fallback: se non c'è ID, non possiamo caricare contatori extra oltre a quelli già nell'oggetto
+      if (!currentId) return;
       
       try {
         // A) Carica Contatori Globali dal Database (per tutti)
         const [lCount, dCount] = await Promise.all([
-           db.getLikeCount(id),
-           db.getDislikeCount(id)
+           db.getLikeCount(currentId),
+           db.getDislikeCount(currentId)
         ]);
         
         setLikeCount(lCount);
         setDislikeCount(dCount);
         
-        // SINCRONIZZAZIONE CON IL GENITORE (solo se i dati differiscono)
-        if (!initialSyncDone.current && (lCount !== article.likeCount || dCount !== article.dislikeCount)) {
-            updateParent(id, lCount, dCount);
-            initialSyncDone.current = true;
+        // Notifica il padre se i contatori differiscono da quelli iniziali
+        if (lCount !== article.likeCount || dCount !== article.dislikeCount) {
+            updateParent(currentId, lCount, dCount);
         }
         
         // B) Carica Stato Utente (Solo se loggato)
         if (currentUser) {
           const [liked, disliked] = await Promise.all([
-            db.hasUserLiked(id, currentUser.id),
-            db.hasUserDisliked(id, currentUser.id)
+            db.hasUserLiked(currentId, currentUser.id),
+            db.hasUserDisliked(currentId, currentUser.id)
           ]);
           setUserHasLiked(liked);
           setUserHasDisliked(disliked);
         }
 
         // C) Carica Commenti
-        loadComments(id);
+        loadComments(currentId);
 
       } catch (error) {
-        console.error("[LOGICA-VOTO] Errore caricamento:", error);
+        console.error("[LOGICA-VOTO] Errore caricamento dati cumulativi:", error);
       }
     };
 
     loadInteractionData();
-  }, [article.id, currentUser, article.likeCount, article.dislikeCount]); 
+  }, [article.id, currentUser]); 
 
   const loadComments = async (artId: string) => {
       setLoadingComments(true);
@@ -127,7 +128,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               return newId || null;
           }
       } catch (e) {
-          console.error("[LOGICA-VOTO] Errore salvataggio:", e);
+          console.error("[LOGICA-VOTO] Errore salvataggio per voto:", e);
       }
       return null;
   };
@@ -173,10 +174,11 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           updateParent(targetId, realLikeCount, realDislikeCount);
       } catch (error) {
           console.error("[LOGICA-VOTO] ERRORE Like:", error);
+          // Rollback in caso di errore
           setUserHasLiked(wasLiked);
           setUserHasDisliked(wasDisliked);
-          setLikeCount(article.likeCount || 0);
-          setDislikeCount(article.dislikeCount || 0);
+          setLikeCount(likeCount);
+          setDislikeCount(dislikeCount);
       } finally {
           loadingRef.current = false;
       }
@@ -224,8 +226,8 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           console.error("[LOGICA-VOTO] ERRORE Dislike:", error);
           setUserHasDisliked(wasDisliked);
           setUserHasLiked(wasLiked);
-          setLikeCount(article.likeCount || 0);
-          setDislikeCount(article.dislikeCount || 0);
+          setLikeCount(likeCount);
+          setDislikeCount(dislikeCount);
       } finally {
           loadingRef.current = false;
       }
@@ -304,14 +306,14 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                 </a>
             </div>
 
-            {/* SEZIONE INTERAZIONE */}
+            {/* SEZIONE INTERAZIONE - VISIBILE A TUTTI */}
             <div className="flex flex-wrap items-center gap-4 border-t border-b py-6 mb-8">
               <Tooltip content={currentUser ? "Mi piace" : "Accedi per votare"}>
                   <button 
                     onClick={handleLike}
                     className={`
                         flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-200 transform border
-                        ${currentUser ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}
+                        ${currentUser ? 'active:scale-95 cursor-pointer shadow-sm' : 'cursor-default opacity-90'}
                         ${userHasLiked 
                             ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm ring-1 ring-emerald-100' 
                             : 'bg-white text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600'
@@ -328,7 +330,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                     onClick={handleDislike}
                     className={`
                         flex items-center space-x-2 px-4 py-2 rounded-full transition-all duration-200 transform border
-                        ${currentUser ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}
+                        ${currentUser ? 'active:scale-95 cursor-pointer shadow-sm' : 'cursor-default opacity-90'}
                         ${userHasDisliked 
                             ? 'bg-orange-50 text-orange-600 border-orange-200 shadow-sm ring-1 ring-orange-100' 
                             : 'bg-white text-slate-600 border-slate-200 hover:bg-orange-50 hover:text-orange-600'
@@ -347,7 +349,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                     onClick={() => currentUser ? onToggleFavorite(article) : onLoginRequest()} 
                     className={`flex items-center space-x-2 px-4 py-2 rounded-full transition transform active:scale-95 border ${
                         isFavorite 
-                            ? 'bg-amber-50 text-amber-500 border-amber-200' 
+                            ? 'bg-amber-50 text-amber-500 border-amber-200 shadow-sm' 
                             : 'bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-500'
                     }`}
                   >
