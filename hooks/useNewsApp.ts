@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
@@ -183,7 +184,10 @@ export const useNewsApp = () => {
       }
     },
     handleArticleUpdate: (updated: Article) => {
+      // Aggiorna la lista principale
       setArticles(prev => prev.map(a => (a.id === updated.id || a.url === updated.url) ? updated : a));
+      // Aggiorna l'articolo selezionato (se è quello attualmente aperto)
+      setSelectedArticle(prev => (prev && (prev.id === updated.id || prev.url === updated.url)) ? updated : prev);
     }
   };
 };
