@@ -12,10 +12,12 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
         ? `%${cleanLabel}%` 
         : '%';
     
-    console.log(`[DB-ARTICLES] getCachedArticles: Querying for "${categoryLabel}" (Pattern: ${searchTerm})`);
+    console.log(`[DB-ARTICLES] 🔍 Richiesta articoli per pattern: "${searchTerm}"`);
 
     try {
-        let { data, error } = await supabase
+        // Tentativo query con conteggi (Requires specific RLS/Views)
+        console.log("[DB-ARTICLES] 📡 Esecuzione query principale...");
+        const { data, error } = await supabase
           .from('articles')
           .select('*, likes(count), dislikes(count)')
           .ilike('category', searchTerm) 
@@ -23,45 +25,50 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
           .limit(50);
 
         if (error) {
-            console.warn("[DB-ARTICLES] ⚠️ Query complessa fallita (RLS o Schema missing), procedo con fallback semplice...", error.message);
+            console.warn(`[DB-ARTICLES] ⚠️ Errore query principale (${error.code}). Provo fallback semplice...`);
             
-            const fallback = await supabase
+            const { data: fallbackData, error: fallbackError } = await supabase
                 .from('articles')
                 .select('*')
                 .ilike('category', searchTerm)
                 .order('created_at', { ascending: false })
                 .limit(50);
             
-            data = fallback.data;
-            error = fallback.error;
+            if (fallbackError) {
+                console.error("[DB-ARTICLES] ❌ Errore anche nel fallback:", fallbackError.message);
+                return [];
+            }
+            
+            console.log(`[DB-ARTICLES] ✅ Fallback riuscito. Trovati ${fallbackData?.length || 0} articoli.`);
+            return mapArticles(fallbackData);
         }
 
-        if (error) {
-            console.error("[DB-ARTICLES] ❌ Errore critico fetch cache:", error.message);
-            return [];
-        }
-        
-        console.log(`[DB-ARTICLES] ✅ Trovati ${data?.length || 0} articoli in cache.`);
+        console.log(`[DB-ARTICLES] ✅ Query riuscita. Trovati ${data?.length || 0} articoli.`);
+        return mapArticles(data);
 
-        return (data || []).map((a: any) => ({
-            id: a.id,
-            title: a.title,
-            summary: a.summary,
-            source: a.source,
-            url: a.url,
-            date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
-            category: a.category,
-            imageUrl: a.image_url || '',
-            audioBase64: a.audio_base64 || '',
-            sentimentScore: a.sentiment_score,
-            likeCount: a.likes?.[0]?.count || 0,
-            dislikeCount: a.dislikes?.[0]?.count || 0
-        }));
-
-    } catch (e: any) {
-        console.error("[DB-ARTICLES] ❌ Eccezione durante fetch cache:", e);
+    } catch (e) {
+        console.error("[DB-ARTICLES] ❌ Eccezione durante il recupero:", e);
         return [];
     }
+};
+
+// Helper per mappare i dati grezzi del DB nell'interfaccia Article dell'app
+const mapArticles = (data: any[] | null): Article[] => {
+    if (!data) return [];
+    return data.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        summary: a.summary,
+        source: a.source,
+        url: a.url,
+        date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
+        category: a.category,
+        imageUrl: a.image_url || '',
+        audioBase64: a.audio_base64 || '',
+        sentimentScore: a.sentiment_score,
+        likeCount: a.likes?.[0]?.count || 0,
+        dislikeCount: a.dislikes?.[0]?.count || 0
+    }));
 };
 
 export const saveArticles = async (categoryLabel: string, articles: Article[]): Promise<Article[]> => {
@@ -69,7 +76,6 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
     
     const savedArticles: Article[] = [];
     const cleanCategory = (categoryLabel || 'Generale').trim();
-    console.log(`[DB-ARTICLES] 💾 Salvataggio di ${articles.length} articoli per la categoria "${cleanCategory}"`);
 
     for (const article of articles) {
         if (!article.url) continue;
@@ -100,12 +106,8 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                     category: data.category
                 });
             }
-        } catch (e) {
-            console.error(`[DB-ARTICLES] ❌ Errore salvataggio articolo "${article.title}":`, e);
-        }
+        } catch (e) {}
     }
-    
-    console.log(`[DB-ARTICLES] ✅ Salvataggio completato. ${savedArticles.length} articoli registrati.`);
     return savedArticles;
 };
 
