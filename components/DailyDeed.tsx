@@ -5,35 +5,77 @@ import { generateGoodDeed } from '../services/geminiService';
 import { Deed } from '../types';
 import { Tooltip } from './Tooltip';
 
-export const DailyDeed: React.FC = () => {
+interface DailyDeedProps {
+  userId?: string;
+}
+
+export const DailyDeed: React.FC<DailyDeedProps> = ({ userId }) => {
   const [deed, setDeed] = useState<Deed | null>(null);
   const [loading, setLoading] = useState(false);
   const [accepted, setAccepted] = useState(false);
 
   useEffect(() => {
-    loadDeed();
-  }, []);
+    if (userId) {
+      loadDeed();
+    }
+  }, [userId]);
 
   const loadDeed = async () => {
+    if (!userId) return;
+    
     console.log("[DAILY-DEED] 🚀 Inizio caricamento sfida del giorno...");
     setLoading(true);
+    
     try {
+        // Controllo persistenza locale
+        const today = new Date().toISOString().split('T')[0];
+        const storageKey = `daily_deed_state_${userId}`;
+        const savedState = localStorage.getItem(storageKey);
+        
+        if (savedState) {
+            const parsed = JSON.parse(savedState);
+            if (parsed.date === today) {
+                console.log("[DAILY-DEED] 💾 Ripristino stato sfida dalla memoria locale.");
+                setDeed(parsed.deed);
+                setAccepted(parsed.accepted);
+                setLoading(false);
+                return;
+            } else {
+                console.log("[DAILY-DEED] 🧹 Sfida scaduta, ne cerco una nuova per oggi.");
+                localStorage.removeItem(storageKey);
+            }
+        }
+
         const existingDeed = await db.getRandomDeed();
+        let currentDeed: Deed | null = null;
+
         if (existingDeed) {
             console.log("[DAILY-DEED] 📦 Sfida recuperata dal database:", existingDeed.text);
-            setDeed(existingDeed);
+            currentDeed = existingDeed;
         } else {
             console.log("[DAILY-DEED] 🤖 Database vuoto, richiesta sfida a Gemini...");
             const text = await generateGoodDeed();
             if (text) {
                 console.log("[DAILY-DEED] ✨ Gemini ha suggerito:", text);
-                db.saveDeed(text).catch(e => console.warn("[DAILY-DEED] ⚠️ Salvataggio deed fallito (non critico):", e));
-                setDeed({ id: 'temp-ai', text });
+                db.saveDeed(text).catch(e => console.warn("[DAILY-DEED] ⚠️ Salvataggio deed fallito:", e));
+                currentDeed = { id: 'temp-ai', text };
             } else {
-                console.warn("[DAILY-DEED] ⚠️ Gemini non ha risposto, uso fallback locale.");
-                setDeed({ id: 'fallback', text: 'Fai un sorriso a chi incontri oggi.' });
+                currentDeed = { id: 'fallback', text: 'Fai un sorriso a chi incontri oggi.' };
             }
         }
+
+        setDeed(currentDeed);
+        
+        // Salviamo comunque il deed caricato per mantenere la coerenza durante il giorno
+        if (currentDeed) {
+            const stateToSave = {
+                date: today,
+                deed: currentDeed,
+                accepted: false
+            };
+            localStorage.setItem(storageKey, JSON.stringify(stateToSave));
+        }
+
     } catch (e) {
         console.error("[DAILY-DEED] ❌ Errore durante il caricamento della sfida:", e);
         setDeed({ id: 'fallback-err', text: 'Regala un complimento sincero a qualcuno.' });
@@ -43,7 +85,19 @@ export const DailyDeed: React.FC = () => {
   };
 
   const handleAccept = () => {
+      if (!userId || !deed) return;
+      
       setAccepted(true);
+      
+      // Persistenza stato accettato
+      const today = new Date().toISOString().split('T')[0];
+      const storageKey = `daily_deed_state_${userId}`;
+      const stateToSave = {
+          date: today,
+          deed: deed,
+          accepted: true
+      };
+      localStorage.setItem(storageKey, JSON.stringify(stateToSave));
   };
 
   // Se non c'è ancora un deed ma stiamo caricando, mostriamo uno skeleton semplice
