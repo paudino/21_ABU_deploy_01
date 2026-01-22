@@ -76,7 +76,7 @@
   }
 }
 </script>
-<!-- Importazione Fonts Sobri ed Eleganti: Libre Baskerville (Titoli) + Source Sans 3 (Testi) -->
+<!-- Importazione Fonts Sobri ed Eleganti -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet">
@@ -85,6 +85,23 @@
   body { font-family: 'Source Sans 3', sans-serif; }
   h1, h2, h3, h4 { font-family: 'Libre Baskerville', serif; }
   .font-body { font-family: 'Source Sans 3', sans-serif; }
+  
+  /* Scrollbar Personalizzata ed Elegante */
+  .custom-scrollbar::-webkit-scrollbar {
+    height: 4px;
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #fed7aa; /* joy-200 */
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #fb923c; /* joy-400 */
+  }
+
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>
