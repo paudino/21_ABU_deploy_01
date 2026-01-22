@@ -2,21 +2,12 @@
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Singleton per il client Gemini.
+ * Client Gemini factory.
+ * Crea una nuova istanza ogni volta per assicurare l'uso della chiave API più recente 
+ * ed evitare stati persistenti tra le richieste, seguendo le linee guida.
  */
-let aiInstance: GoogleGenAI | null = null;
-
 export const getClient = () => {
-  if (!aiInstance) {
-    const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
-    
-    if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY' || apiKey === '') {
-      console.error("[GEMINI-CLIENT] ❌ ERRORE: API_KEY non configurata! Verifica le variabili d'ambiente.");
-      throw new Error("Missing GEMINI_API_KEY environment variable. Add it to your .env or Vercel Settings.");
-    }
-    
-    console.log("[GEMINI-CLIENT] ✅ Client inizializzato con successo.");
-    aiInstance = new GoogleGenAI({ apiKey });
-  }
-  return aiInstance;
+  // La chiave API deve essere ottenuta esclusivamente dalla variabile d'ambiente process.env.API_KEY
+  // e passata come parametro nominato durante l'inizializzazione.
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
