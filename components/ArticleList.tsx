@@ -242,11 +242,11 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                                </Tooltip>
                                
                                <div className="flex items-center gap-3 text-slate-400 select-none ml-1">
-                                   <div className="flex items-center gap-0.5">
+                                   <div className="flex items-center gap-0.5" title="Like">
                                       <IconThumbUp className="w-3.5 h-3.5" />
                                       <span className="text-[10px] font-bold">{article.likeCount || 0}</span>
                                    </div>
-                                   <div className="flex items-center gap-0.5">
+                                   <div className="flex items-center gap-0.5" title="Dislike">
                                       <IconThumbDown className="w-3.5 h-3.5" />
                                       <span className="text-[10px] font-bold">{article.dislikeCount || 0}</span>
                                    </div>
