@@ -15,6 +15,7 @@ interface CategoryBarProps {
 
 /**
  * Barra scorrevole orizzontale per le categorie con ricerca integrata.
+ * Lo z-index è stato aumentato per garantire che i tooltip e i menu siano sempre visibili.
  */
 export const CategoryBar: React.FC<CategoryBarProps> = ({
   categories,
@@ -65,7 +66,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
   }, [categories]);
 
   return (
-    <div className="sticky top-[108px] md:top-20 z-20 backdrop-blur-md bg-white/70 border-b border-white/50 py-3 shadow-sm transition-all duration-300">
+    <div className="sticky top-[108px] md:top-20 z-50 backdrop-blur-md bg-white/70 border-b border-white/50 py-3 shadow-sm transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-3">
          
          {/* Etichetta fissa (Desktop) */}
@@ -109,7 +110,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
               
               {/* Bottone CERCA */}
               <div className="relative">
-                <Tooltip content="Cerca notizie libere">
+                <Tooltip content="Cerca notizie libere" position="bottom">
                     <button 
                         onClick={() => { setShowSearch(!showSearch); setShowAddCat(false); }}
                         className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${showSearch ? 'bg-joy-500 text-white' : 'bg-white/80 border border-slate-300 text-slate-400 hover:text-joy-500'}`}
@@ -119,7 +120,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                 </Tooltip>
 
                 {showSearch && (
-                    <div className="absolute top-10 right-0 bg-white shadow-xl rounded-xl p-3 z-30 border border-orange-100 w-64 animate-in fade-in slide-in-from-top-2">
+                    <div className="absolute top-11 right-0 bg-white shadow-2xl rounded-xl p-3 z-[60] border border-orange-100 w-64 animate-in fade-in slide-in-from-top-2">
                         <div className="flex gap-2">
                             <input 
                                 type="text" 
@@ -141,7 +142,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
               {/* Bottone AGGIUNGI (solo loggati) */}
               {currentUser && (
                 <div className="relative">
-                    <Tooltip content="Crea nuova categoria">
+                    <Tooltip content="Crea nuova categoria" position="bottom">
                         <button 
                             onClick={() => { setShowAddCat(!showAddCat); setShowSearch(false); }}
                             className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${showAddCat ? 'bg-rose-500 text-white' : 'bg-white/80 border border-slate-300 text-slate-400 hover:text-rose-500'}`}
@@ -151,7 +152,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                     </Tooltip>
 
                     {showAddCat && (
-                        <div className="absolute top-10 right-0 bg-white shadow-xl rounded-xl p-3 z-30 border border-rose-100 w-64 animate-in fade-in slide-in-from-top-2">
+                        <div className="absolute top-11 right-0 bg-white shadow-2xl rounded-xl p-3 z-[60] border border-rose-100 w-64 animate-in fade-in slide-in-from-top-2">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 ml-1">Nuova Categoria AI</p>
                             <div className="flex gap-2">
                                 <input 
