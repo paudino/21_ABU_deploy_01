@@ -6,53 +6,41 @@ export const cleanupOldArticles = async (): Promise<void> => {
     try { await supabase.rpc('cleanup_old_articles'); } catch (e) {}
 };
 
-export const getCachedArticles = async (categoryLabel: string): Promise<Article[]> => {
-    const cleanLabel = categoryLabel ? categoryLabel.trim() : '';
-    const searchTerm = (cleanLabel && cleanLabel !== 'Generale') 
-        ? `%${cleanLabel}%` 
+export const getCachedArticles = async (queryTerm: string): Promise<Article[]> => {
+    const cleanTerm = queryTerm ? queryTerm.trim() : '';
+    const searchTerm = (cleanTerm && cleanTerm !== 'Generale') 
+        ? `%${cleanTerm}%` 
         : '%';
     
-    console.log(`[DB-ARTICLES] 🔍 Richiesta articoli per pattern: "${searchTerm}"`);
+    console.log(`[DB-ARTICLES] 🔍 Ricerca articoli per termine: "${searchTerm}"`);
 
     try {
-        // Tentativo query con conteggi (Requires specific RLS/Views)
-        console.log("[DB-ARTICLES] 📡 Esecuzione query principale...");
+        // Query che cerca sia nella categoria che nel titolo per massima pertinenza
         const { data, error } = await supabase
           .from('articles')
           .select('*, likes(count), dislikes(count)')
-          .ilike('category', searchTerm) 
+          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm},summary.ilike.${searchTerm}`)
           .order('created_at', { ascending: false })
           .limit(50);
 
         if (error) {
-            console.warn(`[DB-ARTICLES] ⚠️ Errore query principale (${error.code}). Provo fallback semplice...`);
-            
-            const { data: fallbackData, error: fallbackError } = await supabase
+            console.warn(`[DB-ARTICLES] ⚠️ Errore query principale. Provo fallback...`);
+            const { data: fallbackData } = await supabase
                 .from('articles')
                 .select('*')
-                .ilike('category', searchTerm)
+                .or(`category.ilike.${searchTerm},title.ilike.${searchTerm}`)
                 .order('created_at', { ascending: false })
                 .limit(50);
-            
-            if (fallbackError) {
-                console.error("[DB-ARTICLES] ❌ Errore anche nel fallback:", fallbackError.message);
-                return [];
-            }
-            
-            console.log(`[DB-ARTICLES] ✅ Fallback riuscito. Trovati ${fallbackData?.length || 0} articoli.`);
             return mapArticles(fallbackData);
         }
 
-        console.log(`[DB-ARTICLES] ✅ Query riuscita. Trovati ${data?.length || 0} articoli.`);
         return mapArticles(data);
-
     } catch (e) {
-        console.error("[DB-ARTICLES] ❌ Eccezione durante il recupero:", e);
+        console.error("[DB-ARTICLES] ❌ Errore ricerca cache:", e);
         return [];
     }
 };
 
-// Helper per mappare i dati grezzi del DB nell'interfaccia Article dell'app
 const mapArticles = (data: any[] | null): Article[] => {
     if (!data) return [];
     return data.map((a: any) => ({
