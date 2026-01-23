@@ -1,116 +1,29 @@
 
-<!DOCTYPE html>
-<html lang="it">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f97316" />
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Buon Umore">
-    
-    <title>L'angolo del buon umore</title>
-    
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/869/869869.png" />
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['"Source Sans 3"', 'sans-serif'],
-              display: ['"Libre Baskerville"', 'serif'],
-              body: ['"Source Sans 3"', 'sans-serif'],
-            },
-            colors: {
-              brand: {
-                50: '#f0fdf4',
-                100: '#dcfce7',
-                500: '#22c55e',
-                600: '#16a34a',
-                900: '#14532d',
-              },
-              joy: {
-                50: '#fff7ed',
-                100: '#ffedd5',
-                200: '#fed7aa',
-                300: '#fdba74',
-                400: '#fb923c',
-                500: '#f97316',
-                600: '#ea580c',
-                700: '#c2410c',
-                800: '#9a3412',
-                900: '#7c2d12',
-              }
-            },
-            animation: {
-              'blob': 'blob 7s infinite',
-            },
-            keyframes: {
-              blob: {
-                '0%': { transform: 'translate(0px, 0px) scale(1)' },
-                '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
-                '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
-                '100%': { transform: 'translate(0px, 0px) scale(1)' },
-              }
-            }
-          }
-        }
-      }
-    </script>
-  <script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2",
-    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.1/client",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "path": "https://esm.sh/path@^0.12.7",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "vite": "https://esm.sh/vite@^7.3.1"
-  }
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
 }
-</script>
-<!-- Importazione Fonts Sobri ed Eleganti -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet">
 
-<style>
-  body { font-family: 'Source Sans 3', sans-serif; }
-  h1, h2, h3, h4 { font-family: 'Libre Baskerville', serif; }
-  .font-body { font-family: 'Source Sans 3', sans-serif; }
-  
-  /* Scrollbar Personalizzata ed Elegante */
-  .custom-scrollbar::-webkit-scrollbar {
-    height: 6px;
-    width: 6px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(254, 215, 170, 0.1); /* joy-200 opaco */
-    border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #fed7aa; /* joy-200 */
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #fb923c; /* joy-400 */
-  }
+// Registrazione del Service Worker con percorso relativo per supportare preview environments
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    // Usiamo './sw.js' invece di '/sw.js' per evitare conflitti di origine in ambienti di anteprima
+    navigator.serviceWorker.register('./sw.js').then(registration => {
+      console.log('SW registrato con successo: ', registration.scope);
+    }).catch(err => {
+      // Silenziamo l'errore se siamo in un ambiente che non supporta SW (come alcuni iframe di anteprima)
+      console.warn('Registrazione SW non riuscita (probabile ambiente di anteprima): ', err.message);
+    });
+  });
+}
 
-  .no-scrollbar::-webkit-scrollbar { display: none; }
-  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-</style>
-<link rel="stylesheet" href="/index.css">
-</head>
-  <body class="text-slate-900 antialiased">
-    <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
-</html>
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
