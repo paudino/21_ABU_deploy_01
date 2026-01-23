@@ -1,4 +1,3 @@
-
 // Fix: React is the default export from the 'react' package
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
@@ -41,14 +40,13 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
 
-  // Aggiorniamo il ref se l'articolo cambia (ad esempio dopo un salvataggio)
   useEffect(() => {
     articleIdRef.current = article.id;
   }, [article.id]);
 
   useEffect(() => {
     const loadData = async () => {
-      let currentId = article.id; // Usiamo direttamente l'id dalle props
+      let currentId = article.id; 
       if (!currentId) return;
       
       try {
@@ -237,6 +235,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               <div className="w-px h-8 bg-slate-200 mx-2"></div>
 
               <Tooltip content={currentUser ? (isFavorite ? "Rimuovi dai preferiti" : "Salva nei preferiti") : "Accedi per salvare"}>
+                  {/* Fix: changed onLoginClick to onLoginRequest to match the prop name */}
                   <button onClick={() => currentUser ? onToggleFavorite(article) : onLoginRequest()} className={`flex items-center space-x-2 px-4 py-2 rounded-full border ${isFavorite ? 'bg-amber-50 text-amber-500 border-amber-200' : 'bg-white text-slate-600 border-slate-200'}`}>
                       <IconHeart filled={isFavorite} />
                       <span>{isFavorite ? 'Salvato' : 'Salva'}</span>
@@ -302,7 +301,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                                             ) : (
                                                 <button 
                                                     onClick={() => setDeletingCommentId(comment.id)} 
-                                                    className="text-slate-300 hover:text-red-500 p-1 rounded-full transition-colors"
+                                                    className="text-slate-400 hover:text-red-500 p-1 rounded-full transition-colors"
                                                     title="Elimina commento"
                                                 >
                                                     <IconTrash className="w-4 h-4" />
