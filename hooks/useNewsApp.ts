@@ -17,10 +17,12 @@ export const useNewsApp = () => {
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
 
+  // Nuovo stato per la ricerca libera
+  const [searchTerm, setSearchTerm] = useState<string>('');
+
   // 1. GESTIONE AUTENTICAZIONE
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-      console.log(`[AUTH-EVENT] 🔑 Stato Auth: ${event}`);
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         const user = await db.getCurrentUserProfile();
         setCurrentUser(user);
@@ -43,7 +45,6 @@ export const useNewsApp = () => {
   // 2. CARICAMENTO CATEGORIE
   useEffect(() => {
     const loadCategories = async () => {
-      console.log("[HOOK-FLOW] 🛠️ Inizio caricamento categorie...");
       try {
         let dbCats = await db.getCategories(currentUser?.id);
         if (!dbCats || dbCats.length === 0) {
@@ -53,33 +54,29 @@ export const useNewsApp = () => {
           setCategories(dbCats);
         }
       } catch (err) {
-        console.error("[HOOK-FLOW] ❌ Errore critico categorie:", err);
         setCategories(DEFAULT_CATEGORIES);
       }
     };
     loadCategories();
   }, [currentUser?.id]);
 
-  // 3. IMPOSTAZIONE CATEGORIA INIZIALE E RE-INIZIALIZZAZIONE
+  // 3. IMPOSTAZIONE CATEGORIA INIZIALE
   useEffect(() => {
-    // Se non abbiamo una categoria attiva e abbiamo le categorie, o se la categoria attiva non è più valida
-    if (categories.length > 0) {
+    if (categories.length > 0 && !searchTerm && !showFavoritesOnly) {
       const isValid = categories.some(c => c.id === activeCategoryId);
-      if (!activeCategoryId || (!isValid && !showFavoritesOnly)) {
-        console.log(`[HOOK-FLOW] 🏁 Imposto/Ripristino categoria: ${categories[0].label}`);
+      if (!activeCategoryId || !isValid) {
         setActiveCategoryId(categories[0].id);
       }
     }
-  }, [categories, activeCategoryId, showFavoritesOnly]);
+  }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
 
   // 4. FUNZIONE CORE CARICAMENTO NOTIZIE
-  const fetchNewsForCategory = useCallback(async (catId: string, catLabel: string, catValue: string, forceAi: boolean) => {
-    console.log(`[HOOK-FLOW] 📡 FETCH NEWS -> Categoria: "${catLabel}"`);
+  const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
     setLoading(true);
     setNotification(null);
     try {
       if (!forceAi) {
-        const cached = await db.getCachedArticles(catLabel);
+        const cached = await db.getCachedArticles(label);
         if (cached && cached.length > 0) {
           setArticles(cached); 
           setLoading(false); 
@@ -87,10 +84,11 @@ export const useNewsApp = () => {
         }
       }
 
-      const aiArticles = await fetchPositiveNews(catValue, catLabel);
+      // Se non c'è cache o forziamo l'AI
+      const aiArticles = await fetchPositiveNews(query, label);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        db.saveArticles(catLabel, aiArticles).then(saved => {
+        db.saveArticles(label, aiArticles).then(saved => {
           if (saved && saved.length > 0) {
               setArticles(current => {
                 const idMap = new Map(saved.map(s => [s.url, s.id]));
@@ -99,54 +97,41 @@ export const useNewsApp = () => {
           }
         });
       } else {
-        setNotification(forceAi ? "Nessuna nuova notizia trovata." : "Archivio vuoto.");
+        setNotification(forceAi ? "Nessuna nuova notizia trovata per questa ricerca." : "Archivio vuoto.");
       }
     } catch (error) {
-      console.error("[HOOK-FLOW] ❌ Errore recupero notizie:", error);
+      console.error("[FETCH-NEWS] Errore:", error);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // 5. EFFETTO REATTIVO CARICAMENTO NOTIZIE (Logica di transizione migliorata)
+  // 5. EFFETTO REATTIVO CARICAMENTO
   useEffect(() => {
     if (showFavoritesOnly) {
       if (currentUser) {
-        console.log("[HOOK-FLOW] ❤️ Caricamento preferiti...");
         setLoading(true);
         db.getUserFavoriteArticles(currentUser.id).then(favs => {
           setArticles(favs);
           setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
           setLoading(false);
         }).catch(() => setLoading(false));
-      } else {
-        setArticles([]);
-        setLoading(false);
       }
-    } else {
-      // Vista normale: carichiamo solo se abbiamo una categoria attiva
-      if (activeCategoryId && categories.length > 0) {
-        const cat = categories.find(c => c.id === activeCategoryId);
-        if (cat) {
-          fetchNewsForCategory(cat.id, cat.label, cat.value, false);
-        } else {
-          // Stato transitorio: stiamo ancora allineando activeCategoryId tramite l'effetto 3
-          setLoading(true);
-        }
-      } else if (categories.length === 0) {
-        setLoading(true);
-      } else {
-        // Abbiamo le categorie ma non ancora l'ID attivo (attesa effetto 3)
-        setLoading(true);
-      }
+    } else if (searchTerm) {
+      // Ricerca Libera
+      fetchNews(searchTerm, searchTerm, false);
+    } else if (activeCategoryId) {
+      // Categoria standard
+      const cat = categories.find(c => c.id === activeCategoryId);
+      if (cat) fetchNews(cat.value, cat.label, false);
     }
-  }, [showFavoritesOnly, currentUser, activeCategoryId, categories, fetchNewsForCategory]);
+  }, [showFavoritesOnly, currentUser, activeCategoryId, categories, searchTerm, fetchNews]);
 
   return {
     categories,
     activeCategoryId,
     articles,
-    activeCategoryLabel: categories.find(c => c.id === activeCategoryId)?.label,
+    activeCategoryLabel: searchTerm ? `Ricerca: ${searchTerm}` : categories.find(c => c.id === activeCategoryId)?.label,
     loading,
     selectedArticle,
     showLoginModal,
@@ -154,10 +139,22 @@ export const useNewsApp = () => {
     currentUser,
     favoriteArticleIds,
     notification,
-    setActiveCategoryId,
+    setActiveCategoryId: (id: string) => {
+      setSearchTerm(''); // Pulisce la ricerca se selezioni una categoria
+      setActiveCategoryId(id);
+    },
+    handleSearch: (term: string) => {
+      if (!term.trim()) return;
+      setShowFavoritesOnly(false);
+      setActiveCategoryId('');
+      setSearchTerm(term.trim());
+    },
     setSelectedArticle,
     setShowLoginModal,
-    setShowFavoritesOnly,
+    setShowFavoritesOnly: (val: boolean) => {
+        if (val) setSearchTerm('');
+        setShowFavoritesOnly(val);
+    },
     handleLogout: () => {
       setCurrentUser(null);
       setFavoriteArticleIds(new Set());
@@ -168,12 +165,17 @@ export const useNewsApp = () => {
       const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
       if (cat) {
         setCategories(prev => [...prev, cat]);
+        setSearchTerm('');
         setActiveCategoryId(cat.id);
       }
     },
     loadNews: () => {
-      const cat = categories.find(c => c.id === activeCategoryId);
-      if (cat) fetchNewsForCategory(cat.id, cat.label, cat.value, true);
+      if (searchTerm) {
+        fetchNews(searchTerm, searchTerm, true);
+      } else {
+        const cat = categories.find(c => c.id === activeCategoryId);
+        if (cat) fetchNews(cat.value, cat.label, true);
+      }
     },
     onImageGenerated: (url: string, img: string) => {
       setArticles(prev => prev.map(a => a.url === url ? { ...a, imageUrl: img } : a));
