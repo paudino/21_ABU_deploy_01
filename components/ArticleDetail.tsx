@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
 import { db } from '../services/dbService';
-import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck } from './Icons';
+import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck, IconShare, IconWhatsApp, IconFacebook, IconTelegram, IconX as IconTwitter } from './Icons';
 import { AudioPlayer } from './AudioPlayer';
 import { Tooltip } from './Tooltip';
 
@@ -15,6 +15,7 @@ interface ArticleDetailProps {
   onLoginRequest: () => void;
   onToggleFavorite: (article: Article) => void; 
   onUpdate?: (article: Article) => void; 
+  onShareClick?: () => void;
 }
 
 const formatDate = (dateString: string) => {
@@ -25,7 +26,7 @@ const formatDate = (dateString: string) => {
 };
 
 export const ArticleDetail: React.FC<ArticleDetailProps> = ({ 
-  article, currentUser, isFavorite, onClose, onLoginRequest, onToggleFavorite, onUpdate 
+  article, currentUser, isFavorite, onClose, onLoginRequest, onToggleFavorite, onUpdate, onShareClick 
 }) => {
   // Stati Contatori (Globali - visibili a tutti)
   const [likeCount, setLikeCount] = useState(article.likeCount || 0);
@@ -300,10 +301,19 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
 
             <p className="text-lg text-slate-700 leading-relaxed mb-6">{article.summary}</p>
             
-            <div className="mb-6">
+            <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
                 <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-joy-600 font-bold hover:text-joy-700 hover:underline transition-colors">
                     Leggi l'articolo completo <IconExternalLink className="w-4 h-4" />
                 </a>
+                
+                {/* CONDIVISIONE SOCIAL */}
+                <button 
+                    onClick={onShareClick}
+                    className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-bold hover:bg-indigo-600 hover:text-white transition-all shadow-sm group"
+                >
+                    <IconShare className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                    Condividi Notizia
+                </button>
             </div>
 
             {/* SEZIONE INTERAZIONE - VISIBILE A TUTTI */}
