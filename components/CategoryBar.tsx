@@ -81,7 +81,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
              <div 
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2 pb-2 md:pb-0 scroll-smooth"
+                className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2 pb-4 md:pb-3 scroll-smooth"
              >
                  {categories.map(cat => (
                    <button
@@ -106,7 +106,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
          </div>
 
          {/* Gruppo Pulsanti Azione */}
-         <div className="flex items-center gap-2 border-l border-slate-300 pl-3 flex-shrink-0">
+         <div className="flex items-center gap-2 border-l border-slate-300 pl-3 flex-shrink-0 pb-1">
               
               {/* Bottone CERCA */}
               <div className="relative">
