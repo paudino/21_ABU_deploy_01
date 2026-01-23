@@ -13,10 +13,6 @@ interface CategoryBarProps {
   onSearch?: (term: string) => void;
 }
 
-/**
- * Barra scorrevole orizzontale per le categorie con ricerca integrata.
- * Ottimizzata per evitare overflow laterali dei tooltip e popover.
- */
 export const CategoryBar: React.FC<CategoryBarProps> = ({
   categories,
   activeCategory,
@@ -69,19 +65,17 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
     <div className="sticky top-[108px] md:top-20 z-50 backdrop-blur-md bg-white/70 border-b border-white/50 py-3 shadow-sm transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-3">
          
-         {/* Etichetta fissa (Desktop) */}
          <span className="text-xs font-bold text-joy-800 uppercase tracking-widest mr-2 hidden md:block opacity-70 flex-shrink-0">
             Filtra:
          </span>
 
-         {/* Container Principale Scorrevole */}
-         <div className="flex-1 relative overflow-hidden flex items-center">
+         <div className="flex-1 relative flex items-center">
              <div className={`absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white/90 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showLeftShadow ? 'opacity-100' : 'opacity-0'}`}></div>
 
              <div 
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2 pb-4 md:pb-3 scroll-smooth"
+                className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2 pb-5 md:pb-4 scroll-smooth"
              >
                  {categories.map(cat => (
                    <button
@@ -105,10 +99,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
              <div className={`absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white/90 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showRightShadow ? 'opacity-100' : 'opacity-0'}`}></div>
          </div>
 
-         {/* Gruppo Pulsanti Azione */}
          <div className="flex items-center gap-2 border-l border-slate-300 pl-3 flex-shrink-0 pb-1">
-              
-              {/* Bottone CERCA */}
               <div className="relative">
                 <Tooltip content="Cerca notizie libere" position="bottom" align="right">
                     <button 
@@ -139,7 +130,6 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                 )}
               </div>
 
-              {/* Bottone AGGIUNGI (solo loggati) */}
               {currentUser && (
                 <div className="relative">
                     <Tooltip content="Crea nuova categoria" position="bottom" align="right">
