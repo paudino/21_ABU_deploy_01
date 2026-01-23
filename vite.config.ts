@@ -5,7 +5,8 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     // Carica tutte le variabili d'ambiente, comprese quelle senza prefisso VITE_
-    const env = loadEnv(mode, process.cwd(), '');
+    // Fix: Using '.' instead of process.cwd() to avoid type definition issues with the process global
+    const env = loadEnv(mode, '.', '');
     const apiKey = env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || '';
 
     return {
@@ -21,7 +22,8 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          '@': path.resolve(__dirname, '.'),
+          // Fix: Using '.' for path resolution as __dirname is not defined in standard ES module environments
+          '@': path.resolve('.'),
         }
       }
     };
