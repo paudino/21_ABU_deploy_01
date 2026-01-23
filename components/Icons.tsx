@@ -21,12 +21,38 @@ export const IconMessage = ({ className }: { className?: string }) => (
 
 export const IconShare = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <circle cx="18" cy="5" r="3"/>
-    <circle cx="6" cy="12" r="3"/>
-    <circle cx="18" cy="19" r="3"/>
-    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
   </svg>
+);
+
+export const IconCopy = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+  </svg>
+);
+
+export const IconWhatsApp = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.94 3.659 1.437 5.634 1.437h.005c6.558 0 11.897-5.335 11.9-11.894a11.83 11.83 0 00-3.486-8.413z"/>
+    </svg>
+);
+
+export const IconFacebook = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+);
+
+export const IconTelegram = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path d="M11.944 0C5.346 0 0 5.346 0 11.944c0 6.598 5.346 11.944 11.944 11.944 6.598 0 11.944-5.346 11.944-11.944C23.888 5.346 18.542 0 11.944 0zm5.206 8.19c-.163 1.715-.873 5.9-.1.233.1.233.194.263.24.263.053 0 .107-.013.155-.045.163-.11.246-.234.246-.372 0-.016-.004-.031-.006-.047l-.503-2.656c-.013-.075-.062-.138-.13-.171a.208.208 0 0 0-.203.011c-.007.005-.621.42-1.778 1.2l-2.435 1.643a.214.214 0 0 1-.227.012l-1.997-1.14c-.163-.093-.305-.16-.43-.21-.125-.05-.24-.09-.34-.12-.11-.03-.21-.06-.3-.09-.09-.03-.17-.06-.24-.09-.07-.03-.13-.06-.18-.09-.05-.03-.09-.06-.12-.09-.03-.03-.05-.06-.06-.09-.01-.03-.01-.06-.01-.09 0-.03.01-.06.03-.09.02-.03.05-.06.09-.09l.34-.23c.12-.08.26-.18.42-.3s.34-.25.54-.39c.2-.14.42-.3.66-.48.24-.18.5-.38.78-.6s.58-.45.9-.69c.32-.24.66-.5.1.02.44-.33.91-.68 1.41-1.05.07-.05.15-.08.24-.08.09 0 .17.03.24.08.07.05.12.12.15.2z"/>
+    </svg>
+);
+
+export const IconX = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/>
+    </svg>
 );
 
 export const IconThumbUp = ({ className, filled }: { className?: string, filled?: boolean }) => (
@@ -52,7 +78,7 @@ export const IconRefresh = ({ className, spin }: { className?: string, spin?: bo
   </svg>
 );
 
-export const IconX = ({ className }: { className?: string }) => (
+export const IconXIcon = ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
         <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
     </svg>
