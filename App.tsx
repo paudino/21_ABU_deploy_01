@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { ArticleList } from './components/ArticleList';
@@ -7,7 +7,9 @@ import { Footer } from './components/Footer';
 import { LoginModal } from './components/LoginModal';
 import { DailyDeed } from './components/DailyDeed';
 import { ArticleDetail } from './components/ArticleDetail';
+import { ShareModal } from './components/ShareModal';
 import { useNewsApp } from './hooks/useNewsApp';
+import { Article } from './types';
 
 function App() {
   const {
@@ -34,6 +36,16 @@ function App() {
     handleToggleFavorite,
     handleArticleUpdate
   } = useNewsApp();
+
+  const [sharingArticle, setSharingArticle] = useState<Article | null>(null);
+
+  const handleOpenShare = (article: Article) => {
+    if (!currentUser) {
+      setShowLoginModal(true);
+      return;
+    }
+    setSharingArticle(article);
+  };
 
   return (
     <div className="min-h-screen relative font-sans text-slate-900 flex flex-col">
@@ -87,6 +99,8 @@ function App() {
           onToggleFavorite={handleToggleFavorite}
           notification={notification}
           onCloseFavorites={() => setShowFavoritesOnly(false)}
+          onLoginRequest={() => setShowLoginModal(true)}
+          onShareClick={handleOpenShare}
         />
       </div>
 
@@ -104,6 +118,14 @@ function App() {
           onLoginRequest={() => setShowLoginModal(true)}
           onToggleFavorite={handleToggleFavorite}
           onUpdate={handleArticleUpdate}
+          onShareClick={() => handleOpenShare(selectedArticle)}
+        />
+      )}
+
+      {sharingArticle && (
+        <ShareModal 
+          article={sharingArticle} 
+          onClose={() => setSharingArticle(null)} 
         />
       )}
 
