@@ -15,7 +15,7 @@ interface CategoryBarProps {
 
 /**
  * Barra scorrevole orizzontale per le categorie con ricerca integrata.
- * Lo z-index è stato aumentato per garantire che i tooltip e i menu siano sempre visibili.
+ * Ottimizzata per evitare overflow laterali dei tooltip e popover.
  */
 export const CategoryBar: React.FC<CategoryBarProps> = ({
   categories,
@@ -110,7 +110,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
               
               {/* Bottone CERCA */}
               <div className="relative">
-                <Tooltip content="Cerca notizie libere" position="bottom">
+                <Tooltip content="Cerca notizie libere" position="bottom" align="right">
                     <button 
                         onClick={() => { setShowSearch(!showSearch); setShowAddCat(false); }}
                         className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${showSearch ? 'bg-joy-500 text-white' : 'bg-white/80 border border-slate-300 text-slate-400 hover:text-joy-500'}`}
@@ -120,7 +120,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                 </Tooltip>
 
                 {showSearch && (
-                    <div className="absolute top-11 right-0 bg-white shadow-2xl rounded-xl p-3 z-[60] border border-orange-100 w-64 animate-in fade-in slide-in-from-top-2">
+                    <div className="absolute top-11 right-0 bg-white shadow-2xl rounded-xl p-3 z-[60] border border-orange-100 w-64 animate-in fade-in slide-in-from-top-2 origin-top-right">
                         <div className="flex gap-2">
                             <input 
                                 type="text" 
@@ -142,7 +142,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
               {/* Bottone AGGIUNGI (solo loggati) */}
               {currentUser && (
                 <div className="relative">
-                    <Tooltip content="Crea nuova categoria" position="bottom">
+                    <Tooltip content="Crea nuova categoria" position="bottom" align="right">
                         <button 
                             onClick={() => { setShowAddCat(!showAddCat); setShowSearch(false); }}
                             className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${showAddCat ? 'bg-rose-500 text-white' : 'bg-white/80 border border-slate-300 text-slate-400 hover:text-rose-500'}`}
@@ -152,7 +152,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                     </Tooltip>
 
                     {showAddCat && (
-                        <div className="absolute top-11 right-0 bg-white shadow-2xl rounded-xl p-3 z-[60] border border-rose-100 w-64 animate-in fade-in slide-in-from-top-2">
+                        <div className="absolute top-11 right-0 bg-white shadow-2xl rounded-xl p-3 z-[60] border border-rose-100 w-64 animate-in fade-in slide-in-from-top-2 origin-top-right">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 ml-1">Nuova Categoria AI</p>
                             <div className="flex gap-2">
                                 <input 
