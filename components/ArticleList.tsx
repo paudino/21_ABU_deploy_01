@@ -2,7 +2,7 @@
 // Fix: React must be imported to use JSX and React.FC
 import React, { useEffect } from 'react';
 import { Article, User } from '../types';
-import { IconHeart, IconRefresh, IconMicrophoneOn, IconMicOff, IconX, IconThumbUp, IconThumbDown } from './Icons';
+import { IconHeart, IconRefresh, IconMicrophoneOn, IconMicOff, IconX, IconThumbUp, IconThumbDown, IconShare } from './Icons';
 import { generateArticleImage } from '../services/geminiService';
 import { db } from '../services/dbService';
 import { Tooltip } from './Tooltip';
@@ -20,6 +20,8 @@ interface ArticleListProps {
   onToggleFavorite?: (article: Article) => void;
   notification?: string | null; 
   onCloseFavorites?: () => void; 
+  onLoginRequest?: () => void;
+  onShareClick?: (article: Article) => void;
 }
 
 const formatDate = (dateString: string) => {
@@ -43,7 +45,9 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onImageGenerated,
   onToggleFavorite,
   notification,
-  onCloseFavorites
+  onCloseFavorites,
+  onLoginRequest,
+  onShareClick
 }) => {
 
   useEffect(() => {
@@ -218,30 +222,43 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                       </p>
                       
                       <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-400 font-sans">
-                          <div className="flex items-center gap-4">
-                               <Tooltip content={currentUser ? "Ascolta l'articolo (AI)" : "Accedi per abilitare l'audio"}>
+                          <div className="flex items-center gap-3">
+                               <Tooltip content={currentUser ? "Ascolta l'articolo (AI)" : "Accedi per abilitare l'audio"} position="top">
                                     <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full border ${currentUser ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                                        {currentUser ? <IconMicrophoneOn className="w-3.5 h-3.5" /> : <IconMicOff className="w-3.5 h-3.5" />}
                                     </div>
                                </Tooltip>
                                
-                               <div className="flex items-center gap-3 text-slate-400 select-none">
-                                   <div className="flex items-center gap-1">
-                                      <IconThumbUp className="w-4 h-4" />
-                                      <span className="text-xs font-bold">{article.likeCount || 0}</span>
+                               <Tooltip content={currentUser ? "Condividi questa notizia" : "Accedi per condividere"} position="top">
+                                    <button 
+                                      onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (onShareClick) onShareClick(article);
+                                      }}
+                                      className={`p-2 rounded-full transition-all duration-300 ${currentUser ? 'text-indigo-600 hover:bg-indigo-50' : 'text-slate-300'}`}
+                                    >
+                                        <IconShare className="w-4 h-4" />
+                                    </button>
+                               </Tooltip>
+                               
+                               <div className="flex items-center gap-3 text-slate-400 select-none ml-1">
+                                   <div className="flex items-center gap-0.5">
+                                      <IconThumbUp className="w-3.5 h-3.5" />
+                                      <span className="text-[10px] font-bold">{article.likeCount || 0}</span>
                                    </div>
-                                   <div className="flex items-center gap-1">
-                                      <IconThumbDown className="w-4 h-4" />
-                                      <span className="text-xs font-bold">{article.dislikeCount || 0}</span>
+                                   <div className="flex items-center gap-0.5">
+                                      <IconThumbDown className="w-3.5 h-3.5" />
+                                      <span className="text-[10px] font-bold">{article.dislikeCount || 0}</span>
                                    </div>
                                </div>
                           </div>
 
-                           <Tooltip content={isFav ? "Rimuovi dai preferiti" : "Salva nei preferiti"}>
+                           <Tooltip content={isFav ? "Rimuovi dai preferiti" : "Salva nei preferiti"} position="top" align="right">
                                <button 
                                  onClick={(e) => {
                                    e.stopPropagation();
                                    if (onToggleFavorite && currentUser) onToggleFavorite(article);
+                                   else if (onLoginRequest) onLoginRequest();
                                  }}
                                  className={`
                                    p-2 rounded-full transition-all duration-300 transform active:scale-90
