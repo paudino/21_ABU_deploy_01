@@ -10,7 +10,6 @@ import { ArticleDetail } from './components/ArticleDetail';
 import { useNewsApp } from './hooks/useNewsApp';
 
 function App() {
-  // Utilizziamo l'hook personalizzato per tutta la logica di stato
   const {
     categories,
     activeCategoryId,
@@ -24,6 +23,7 @@ function App() {
     favoriteArticleIds,
     notification,
     setActiveCategoryId,
+    handleSearch,
     setSelectedArticle,
     setShowLoginModal,
     setShowFavoritesOnly,
@@ -38,7 +38,7 @@ function App() {
   return (
     <div className="min-h-screen relative font-sans text-slate-900 flex flex-col">
       
-      {/* Sfondo Immagine Fisso che emana positività */}
+      {/* Sfondo Immagine Fisso */}
       <div className="fixed inset-0 z-[-1]">
         <img 
           src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2073&auto=format&fit=crop" 
@@ -57,16 +57,17 @@ function App() {
         onLogout={handleLogout}
       />
 
-      {/* Barra Categorie - SEMPRE VISIBILE */}
+      {/* Barra Categorie con Ricerca */}
       <CategoryBar 
         categories={categories}
         activeCategory={showFavoritesOnly ? '' : activeCategoryId}
         currentUser={currentUser}
         onSelectCategory={setActiveCategoryId}
         onAddCategory={handleAddCategory}
+        onSearch={handleSearch}
       />
 
-      {/* Sfida del Giorno - Visibile SOLO per utenti LOGGATI quando non si è nei preferiti */}
+      {/* Sfida del Giorno */}
       {!showFavoritesOnly && currentUser && (
          <DailyDeed userId={currentUser.id} />
       )}
@@ -91,14 +92,9 @@ function App() {
 
       <Footer />
 
-      {/* Modale Login */}
-      {showLoginModal && (
-        <LoginModal 
-          onClose={() => setShowLoginModal(false)}
-        />
-      )}
-
-      {/* Modale Dettaglio Articolo */}
+      {/* Modali */}
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+      
       {selectedArticle && (
         <ArticleDetail 
           article={selectedArticle} 
