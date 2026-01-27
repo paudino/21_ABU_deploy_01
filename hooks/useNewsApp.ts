@@ -1,8 +1,10 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
+
+const CACHE_TTL_MINUTES = 60; // Le notizie sono fresche per un'ora
 
 export const useNewsApp = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -16,11 +18,12 @@ export const useNewsApp = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
-
-  // Nuovo stato per la ricerca libera
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // 1. GESTIONE AUTENTICAZIONE
+  // Refs per gestire la concorrenza e le race conditions
+  const activeFetchIdRef = useRef<number>(0);
+  const isFetchingRef = useRef(false);
+
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
@@ -42,7 +45,6 @@ export const useNewsApp = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. CARICAMENTO CATEGORIE
   useEffect(() => {
     const loadCategories = async () => {
       try {
@@ -60,7 +62,6 @@ export const useNewsApp = () => {
     loadCategories();
   }, [currentUser?.id]);
 
-  // 3. IMPOSTAZIONE CATEGORIA INIZIALE
   useEffect(() => {
     if (categories.length > 0 && !searchTerm && !showFavoritesOnly) {
       const isValid = categories.some(c => c.id === activeCategoryId);
@@ -70,26 +71,47 @@ export const useNewsApp = () => {
     }
   }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
 
-  // 4. FUNZIONE CORE CARICAMENTO NOTIZIE
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
+    // Incrementiamo l'ID della richiesta corrente
+    const currentFetchId = ++activeFetchIdRef.current;
+    
+    isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
+
     try {
+      // 1. Caching Strategico (solo se non forzato l'AI)
       if (!forceAi) {
-        const cached = await db.getCachedArticles(label);
-        if (cached && cached.length > 0) {
-          setArticles(cached); 
-          setLoading(false); 
-          return; 
+        const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
+        
+        // Se la richiesta è ancora valida (l'utente non ha cambiato nel frattempo)
+        if (currentFetchId !== activeFetchIdRef.current) return;
+
+        if (freshCached && freshCached.length > 0) {
+          setArticles(freshCached);
+          setLoading(false);
+          isFetchingRef.current = false;
+          return;
+        }
+        
+        const oldCached = await db.getCachedArticles(label, 0);
+        if (currentFetchId === activeFetchIdRef.current && oldCached.length > 0) {
+            setArticles(oldCached);
         }
       }
 
-      // Se non c'è cache o forziamo l'AI
+      // 2. Chiamata AI (se necessario)
       const aiArticles = await fetchPositiveNews(query, label);
+      
+      // Controllo vitalità richiesta dopo attesa AI (molto probabile che l'utente abbia cambiato)
+      if (currentFetchId !== activeFetchIdRef.current) return;
+
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
+        
+        // Salvataggio in background asincrono
         db.saveArticles(label, aiArticles).then(saved => {
-          if (saved && saved.length > 0) {
+          if (saved && saved.length > 0 && currentFetchId === activeFetchIdRef.current) {
               setArticles(current => {
                 const idMap = new Map(saved.map(s => [s.url, s.id]));
                 return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
@@ -97,31 +119,40 @@ export const useNewsApp = () => {
           }
         });
       } else {
-        setNotification(forceAi ? "Nessuna nuova notizia trovata per questa ricerca." : "Archivio vuoto.");
+        setArticles(prev => {
+            if (prev.length === 0) setNotification("Nessuna nuova notizia trovata.");
+            return prev;
+        });
       }
     } catch (error) {
       console.error("[FETCH-NEWS] Errore:", error);
     } finally {
-      setLoading(false);
+      // Solo se questa è l'ultima richiesta attivata, togliamo il caricamento
+      if (currentFetchId === activeFetchIdRef.current) {
+        setLoading(false);
+        isFetchingRef.current = false;
+      }
     }
   }, []);
 
-  // 5. EFFETTO REATTIVO CARICAMENTO
   useEffect(() => {
     if (showFavoritesOnly) {
       if (currentUser) {
+        const currentFetchId = ++activeFetchIdRef.current;
         setLoading(true);
         db.getUserFavoriteArticles(currentUser.id).then(favs => {
-          setArticles(favs);
-          setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
-          setLoading(false);
-        }).catch(() => setLoading(false));
+          if (currentFetchId === activeFetchIdRef.current) {
+            setArticles(favs);
+            setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
+            setLoading(false);
+          }
+        }).catch(() => {
+          if (currentFetchId === activeFetchIdRef.current) setLoading(false);
+        });
       }
     } else if (searchTerm) {
-      // Ricerca Libera
       fetchNews(searchTerm, searchTerm, false);
     } else if (activeCategoryId) {
-      // Categoria standard
       const cat = categories.find(c => c.id === activeCategoryId);
       if (cat) fetchNews(cat.value, cat.label, false);
     }
@@ -140,19 +171,24 @@ export const useNewsApp = () => {
     favoriteArticleIds,
     notification,
     setActiveCategoryId: (id: string) => {
-      setSearchTerm(''); // Pulisce la ricerca se selezioni una categoria
+      setSearchTerm(''); // Pulizia immediata
+      setShowFavoritesOnly(false);
       setActiveCategoryId(id);
     },
     handleSearch: (term: string) => {
-      if (!term.trim()) return;
+      const clean = term?.trim();
+      if (!clean) return;
+      setActiveCategoryId(''); // Reset categoria per evitare conflitti nella useEffect
       setShowFavoritesOnly(false);
-      setActiveCategoryId('');
-      setSearchTerm(term.trim());
+      setSearchTerm(clean);
     },
     setSelectedArticle,
     setShowLoginModal,
     setShowFavoritesOnly: (val: boolean) => {
-        if (val) setSearchTerm('');
+        if (val) {
+          setSearchTerm('');
+          setActiveCategoryId('');
+        }
         setShowFavoritesOnly(val);
     },
     handleLogout: () => {
