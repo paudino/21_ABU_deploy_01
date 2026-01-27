@@ -8,15 +8,11 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-// Registrazione del Service Worker con percorso relativo per supportare preview environments
-if ('serviceWorker' in navigator) {
+// Registrazione silenziosa del Service Worker
+if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
   window.addEventListener('load', () => {
-    // Usiamo './sw.js' invece di '/sw.js' per evitare conflitti di origine in ambienti di anteprima
-    navigator.serviceWorker.register('./sw.js').then(registration => {
-      console.log('SW registrato con successo: ', registration.scope);
-    }).catch(err => {
-      // Silenziamo l'errore se siamo in un ambiente che non supporta SW (come alcuni iframe di anteprima)
-      console.warn('Registrazione SW non riuscita (probabile ambiente di anteprima): ', err.message);
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      // Ignora silenziosamente errori 404 (comuni su Vercel se sw.js non è in public)
     });
   });
 }
