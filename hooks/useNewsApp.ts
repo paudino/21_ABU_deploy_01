@@ -7,8 +7,9 @@ import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
 const CACHE_TTL_MINUTES = 60; // Le notizie sono fresche per un'ora
 
 export const useNewsApp = () => {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [activeCategoryId, setActiveCategoryId] = useState<string>(''); 
+  // Inizializzazione con default per evitare blocchi dell'interfaccia
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [activeCategoryId, setActiveCategoryId] = useState<string>('tech'); 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -20,7 +21,6 @@ export const useNewsApp = () => {
   const [notification, setNotification] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // Refs per gestire la concorrenza e le race conditions
   const activeFetchIdRef = useRef<number>(0);
   const isFetchingRef = useRef(false);
 
@@ -49,14 +49,14 @@ export const useNewsApp = () => {
     const loadCategories = async () => {
       try {
         let dbCats = await db.getCategories(currentUser?.id);
-        if (!dbCats || dbCats.length === 0) {
+        if (dbCats && dbCats.length > 0) {
+          setCategories(dbCats);
+        } else if (!categories || categories.length === 0) {
           setCategories(DEFAULT_CATEGORIES);
           db.seedCategories();
-        } else {
-          setCategories(dbCats);
         }
       } catch (err) {
-        setCategories(DEFAULT_CATEGORIES);
+        if (!categories || categories.length === 0) setCategories(DEFAULT_CATEGORIES);
       }
     };
     loadCategories();
@@ -72,7 +72,6 @@ export const useNewsApp = () => {
   }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
 
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
-    // Incrementiamo l'ID della richiesta corrente
     const currentFetchId = ++activeFetchIdRef.current;
     
     isFetchingRef.current = true;
@@ -80,11 +79,8 @@ export const useNewsApp = () => {
     setNotification(null);
 
     try {
-      // 1. Caching Strategico (solo se non forzato l'AI)
       if (!forceAi) {
         const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
-        
-        // Se la richiesta è ancora valida (l'utente non ha cambiato nel frattempo)
         if (currentFetchId !== activeFetchIdRef.current) return;
 
         if (freshCached && freshCached.length > 0) {
@@ -100,16 +96,12 @@ export const useNewsApp = () => {
         }
       }
 
-      // 2. Chiamata AI (se necessario)
       const aiArticles = await fetchPositiveNews(query, label);
-      
-      // Controllo vitalità richiesta dopo attesa AI (molto probabile che l'utente abbia cambiato)
       if (currentFetchId !== activeFetchIdRef.current) return;
 
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
         
-        // Salvataggio in background asincrono
         db.saveArticles(label, aiArticles).then(saved => {
           if (saved && saved.length > 0 && currentFetchId === activeFetchIdRef.current) {
               setArticles(current => {
@@ -127,7 +119,6 @@ export const useNewsApp = () => {
     } catch (error) {
       console.error("[FETCH-NEWS] Errore:", error);
     } finally {
-      // Solo se questa è l'ultima richiesta attivata, togliamo il caricamento
       if (currentFetchId === activeFetchIdRef.current) {
         setLoading(false);
         isFetchingRef.current = false;
@@ -171,14 +162,14 @@ export const useNewsApp = () => {
     favoriteArticleIds,
     notification,
     setActiveCategoryId: (id: string) => {
-      setSearchTerm(''); // Pulizia immediata
+      setSearchTerm(''); 
       setShowFavoritesOnly(false);
       setActiveCategoryId(id);
     },
     handleSearch: (term: string) => {
       const clean = term?.trim();
       if (!clean) return;
-      setActiveCategoryId(''); // Reset categoria per evitare conflitti nella useEffect
+      setActiveCategoryId(''); 
       setShowFavoritesOnly(false);
       setSearchTerm(clean);
     },
