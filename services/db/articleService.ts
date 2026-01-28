@@ -7,41 +7,47 @@ export const cleanupOldArticles = async (): Promise<void> => {
 };
 
 /**
+ * Helper per eseguire una promessa con un timeout.
+ */
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+    return Promise.race([
+        promise,
+        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))
+    ]);
+};
+
+/**
  * Recupera articoli dalla cache filtrando per termine e opzionalmente per freschezza.
  */
 export const getCachedArticles = async (queryTerm: string, maxAgeMinutes: number = 0): Promise<Article[]> => {
-    // Sanificazione rigorosa del termine per evitare errori SQL .or()
     const cleanTerm = (queryTerm || '').trim().replace(/['"()]/g, '');
-    
-    // Se il termine è troppo corto o vuoto, non facciamo query complesse
     if (!cleanTerm || cleanTerm.length < 2) return [];
 
     const searchTerm = `%${cleanTerm}%`;
-    
-    console.log(`[DB-ARTICLES] 🔍 Ricerca cache per: "${searchTerm}" (Max Age: ${maxAgeMinutes}m)`);
+    console.log(`[DB-ARTICLES] 🔍 Ricerca cache per: "${searchTerm}"`);
 
-    try {
-        let query = supabase
-          .from('articles')
-          .select('*, likes(count), dislikes(count)')
-          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm},summary.ilike.${searchTerm}`);
+    const query = (async () => {
+        try {
+            let q = supabase
+              .from('articles')
+              .select('*, likes(count), dislikes(count)')
+              .or(`category.ilike.${searchTerm},title.ilike.${searchTerm},summary.ilike.${searchTerm}`);
 
-        // Se specificato un limite di tempo, filtriamo per data creazione
-        if (maxAgeMinutes > 0) {
-            const threshold = new Date(Date.now() - maxAgeMinutes * 60000).toISOString();
-            query = query.gt('created_at', threshold);
+            if (maxAgeMinutes > 0) {
+                const threshold = new Date(Date.now() - maxAgeMinutes * 60000).toISOString();
+                q = q.gt('created_at', threshold);
+            }
+
+            const { data, error } = await q.order('created_at', { ascending: false }).limit(50);
+            if (error) throw error;
+            return mapArticles(data);
+        } catch (e) {
+            return [];
         }
+    })();
 
-        const { data, error } = await query
-          .order('created_at', { ascending: false })
-          .limit(50);
-
-        if (error) throw error;
-        return mapArticles(data);
-    } catch (e) {
-        console.error("[DB-ARTICLES] ❌ Errore cache:", e);
-        return [];
-    }
+    // Se il DB non risponde in 3 secondi, restituiamo array vuoto per forzare l'uso dell'AI
+    return withTimeout(query, 3000, []);
 };
 
 const mapArticles = (data: any[] | null): Article[] => {
@@ -56,7 +62,7 @@ const mapArticles = (data: any[] | null): Article[] => {
         category: a.category,
         imageUrl: a.image_url || '',
         audioBase64: a.audio_base_64 || '',
-        sentimentScore: a.sentiment_score,
+        sentimentScore: a.sentiment_score || 0.8,
         likeCount: a.likes?.[0]?.count || 0,
         dislikeCount: a.dislikes?.[0]?.count || 0
     }));
@@ -71,7 +77,6 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
     for (const article of articles) {
         if (!article.url) continue;
 
-        // Fix: Use camelCase properties from the Article interface to populate the DB row.
         const row = {
             url: article.url, 
             category: article.category || cleanCategory,
@@ -85,18 +90,15 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
         };
 
         try {
-            const { data, error } = await supabase
+            // Upsert senza timeout (può andare lento in background, non blocca l'UI)
+            const { data } = await supabase
                 .from('articles')
                 .upsert(row, { onConflict: 'url' })
                 .select()
                 .single();
 
             if (data) {
-                savedArticles.push({
-                    ...article,
-                    id: data.id,
-                    category: data.category
-                });
+                savedArticles.push({ ...article, id: data.id, category: data.category });
             }
         } catch (e) {}
     }
