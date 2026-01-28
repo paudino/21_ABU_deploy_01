@@ -4,10 +4,9 @@ import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
 
-const CACHE_TTL_MINUTES = 60; // Le notizie sono fresche per un'ora
+const CACHE_TTL_MINUTES = 60; 
 
 export const useNewsApp = () => {
-  // Inizializzazione con default per evitare blocchi dell'interfaccia
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [activeCategoryId, setActiveCategoryId] = useState<string>('tech'); 
   const [articles, setArticles] = useState<Article[]>([]);
@@ -48,15 +47,13 @@ export const useNewsApp = () => {
   useEffect(() => {
     const loadCategories = async () => {
       try {
+        // Tentativo veloce al DB
         let dbCats = await db.getCategories(currentUser?.id);
         if (dbCats && dbCats.length > 0) {
           setCategories(dbCats);
-        } else if (!categories || categories.length === 0) {
-          setCategories(DEFAULT_CATEGORIES);
-          db.seedCategories();
         }
       } catch (err) {
-        if (!categories || categories.length === 0) setCategories(DEFAULT_CATEGORIES);
+        // Fallback già gestito dallo stato iniziale
       }
     };
     loadCategories();
@@ -79,8 +76,11 @@ export const useNewsApp = () => {
     setNotification(null);
 
     try {
+      // 1. Prova veloce con la cache
       if (!forceAi) {
+        // Aggiungiamo una race tra cache e AI: se la cache non risponde in 2 secondi, lanciamo AI
         const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
+        
         if (currentFetchId !== activeFetchIdRef.current) return;
 
         if (freshCached && freshCached.length > 0) {
@@ -89,19 +89,18 @@ export const useNewsApp = () => {
           isFetchingRef.current = false;
           return;
         }
-        
-        const oldCached = await db.getCachedArticles(label, 0);
-        if (currentFetchId === activeFetchIdRef.current && oldCached.length > 0) {
-            setArticles(oldCached);
-        }
       }
 
+      // 2. Chiamata AI (se cache vuota o lenta)
+      console.log(`[NEWS-APP] 🤖 Lancio generazione AI per: ${label}`);
       const aiArticles = await fetchPositiveNews(query, label);
+      
       if (currentFetchId !== activeFetchIdRef.current) return;
 
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
         
+        // Salvataggio asincrono in background
         db.saveArticles(label, aiArticles).then(saved => {
           if (saved && saved.length > 0 && currentFetchId === activeFetchIdRef.current) {
               setArticles(current => {
@@ -111,13 +110,18 @@ export const useNewsApp = () => {
           }
         });
       } else {
-        setArticles(prev => {
-            if (prev.length === 0) setNotification("Nessuna nuova notizia trovata.");
-            return prev;
-        });
+        // Ultima spiaggia: prova a vedere se c'è cache vecchia (senza limiti TTL)
+        if (!forceAi) {
+            const oldCached = await db.getCachedArticles(label, 0);
+            if (currentFetchId === activeFetchIdRef.current && oldCached.length > 0) {
+                setArticles(oldCached);
+            } else if (currentFetchId === activeFetchIdRef.current) {
+                setNotification("Nessuna notizia trovata al momento.");
+            }
+        }
       }
     } catch (error) {
-      console.error("[FETCH-NEWS] Errore:", error);
+      console.error("[FETCH-NEWS] Errore critico:", error);
     } finally {
       if (currentFetchId === activeFetchIdRef.current) {
         setLoading(false);
