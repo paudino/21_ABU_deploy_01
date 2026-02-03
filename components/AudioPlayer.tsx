@@ -12,36 +12,6 @@ interface AudioPlayerProps {
     canPlay: boolean;
 }
 
-// Funzioni di decodifica PCM standard per Gemini TTS
-function decodeBase64(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-}
-
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({ 
     articleTitle, 
     articleSummary, 
@@ -56,14 +26,23 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     const audioContextRef = useRef<AudioContext | null>(null);
     const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
+    // Pulizia risorse al unmount
     useEffect(() => {
-        return () => stopAudio();
+        return () => {
+            stopAudio();
+        };
     }, []);
 
     const stopAudio = () => {
         if (audioSourceRef.current) {
             try { audioSourceRef.current.stop(); } catch(e) {}
             audioSourceRef.current = null;
+        }
+        if (audioContextRef.current) {
+            // Non chiudiamo il context ogni volta per evitare limiti browser, 
+            // ma lo sospendiamo se necessario. Per ora stop semplice.
+            // try { audioContextRef.current.close(); } catch(e) {}
+            // audioContextRef.current = null;
         }
         setIsPlaying(false);
     };
@@ -81,35 +60,61 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         try {
             let currentAudio = audioBase64;
 
-            // 1. Recupero o generazione audio
+            // 1. Se non abbiamo l'audio, generiamolo
             if (!currentAudio) {
+                console.log("[AudioPlayer] Generazione audio AI...");
                 const textToRead = `${articleTitle}. ${articleSummary}`;
-                currentAudio = await generateAudio(textToRead) || undefined;
+                currentAudio = await generateAudio(textToRead);
                 
                 if (currentAudio) {
                     setAudioBase64(currentAudio);
+                    // Salviamo in cache DB in background
                     if (articleUrl) {
-                        db.updateArticleAudio(articleUrl, currentAudio).catch(e => console.error("Errore salvataggio audio in cache:", e));
+                        db.updateArticleAudio(articleUrl, currentAudio).catch(e => console.error("Salvataggio audio fallito", e));
                     }
                 }
+            } else {
+                console.log("[AudioPlayer] Audio trovato in cache.");
             }
 
-            if (!currentAudio) throw new Error("Impossibile generare l'audio al momento.");
+            if (!currentAudio) throw new Error("Audio non disponibile (Risposta vuota AI)");
 
-            // 2. Setup AudioContext (24kHz richiesto dal modello Kore)
+            // 2. Setup Audio Context (Singleton Pattern per evitare limiti)
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            
+            // Creiamo un nuovo context se non esiste o se è chiuso
             if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
                 audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
             }
             
             const ctx = audioContextRef.current;
-            if (ctx.state === 'suspended') await ctx.resume();
 
-            // 3. Decodifica PCM raw
-            const decodedBytes = decodeBase64(currentAudio);
-            const audioBuffer = await decodeAudioData(decodedBytes, ctx, 24000, 1);
+            // CRITICO: I browser spesso sospendono l'audio se non c'è interazione diretta immediata.
+            // Forziamo il resume.
+            if (ctx.state === 'suspended') {
+                await ctx.resume();
+            }
 
-            // 4. Avvio riproduzione
+            // 3. Decodifica Ottimizzata (PCM 16-bit Little Endian -> Float32)
+            const binaryString = atob(currentAudio);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            const int16Data = new Int16Array(bytes.buffer);
+            const float32Data = new Float32Array(int16Data.length);
+            
+            // Conversione veloce
+            for (let i = 0; i < int16Data.length; i++) {
+                float32Data[i] = int16Data[i] / 32768.0;
+            }
+
+            const audioBuffer = ctx.createBuffer(1, float32Data.length, 24000); // 24kHz fisso
+            audioBuffer.getChannelData(0).set(float32Data);
+
+            // 4. Play
             const source = ctx.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(ctx.destination);
@@ -124,8 +129,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             setIsPlaying(true);
 
         } catch (e: any) {
-            console.error("Errore playback audio:", e);
-            alert("Spiacenti, si è verificato un errore durante la riproduzione audio.");
+            console.error("Errore playback:", e);
+            alert(`Impossibile riprodurre l'audio: ${e.message}`);
             stopAudio();
         } finally {
             setIsLoading(false);
@@ -145,14 +150,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             
             <button 
                 onClick={handlePlayPause} 
-                disabled={!canPlay || isLoading} 
+                disabled={!canPlay} 
                 className={`
                     flex items-center gap-2 px-6 py-2.5 rounded-full font-bold transition-all shadow-md transform hover:scale-105 active:scale-95
                     ${isPlaying 
                         ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-rose-200' 
                         : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
                     }
-                    ${(!canPlay || isLoading) ? 'opacity-50 cursor-not-allowed grayscale' : ''}
+                    ${!canPlay ? 'opacity-50 cursor-not-allowed grayscale' : ''}
                 `}
             >
                 {isLoading ? (
