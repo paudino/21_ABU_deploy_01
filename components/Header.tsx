@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Quote } from '../types';
-import { IconHeart } from './Icons';
+import { User, Quote, Theme } from '../types';
+import { IconHeart, IconSun, IconMoon, IconContrast, IconType, IconSettings } from './Icons';
 import { db } from '../services/dbService';
 import { generateInspirationalQuote } from '../services/geminiService';
 import { Tooltip } from './Tooltip';
@@ -9,26 +9,30 @@ import { Tooltip } from './Tooltip';
 interface HeaderProps {
   currentUser: User | null;
   showFavoritesOnly: boolean;
+  theme: Theme;
+  isReadableFont: boolean;
   onToggleFavorites: () => void;
   onLogout: () => void;
   onLoginClick: () => void;
+  onSetTheme: (theme: Theme) => void;
+  onToggleReadableFont: () => void;
 }
 
-/**
- * Header Moderno "Sunshine".
- * Include il Sole interattivo che genera citazioni e l'area utente.
- */
 export const Header: React.FC<HeaderProps> = ({ 
   currentUser, 
-  showFavoritesOnly, 
+  showFavoritesOnly,
+  theme,
+  isReadableFont,
   onToggleFavorites, 
   onLogout, 
-  onLoginClick 
+  onLoginClick,
+  onSetTheme,
+  onToggleReadableFont
 }) => {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Carica citazione iniziale dal DB (veloce) o genera se vuoto
   useEffect(() => {
     loadInitialQuote();
   }, []);
@@ -36,24 +40,18 @@ export const Header: React.FC<HeaderProps> = ({
   const loadInitialQuote = async () => {
       const q = await db.getRandomQuote();
       if (q) setQuote(q);
-      else fetchNewQuote(); // Se DB vuoto, prova a caricarne una una tantum
+      else fetchNewQuote();
   };
 
   const fetchNewQuote = async () => {
     if (loadingQuote) return;
     setLoadingQuote(true);
     try {
-        // 1. Chiedi a Gemini una NUOVA citazione
         const newQuote = await generateInspirationalQuote();
-        
         if (newQuote) {
-            // 2. Salvala nel DB (gestisce deduplica e limite 50)
             await db.saveQuote(newQuote);
-            
-            // 3. Aggiorna la UI
             setQuote(newQuote);
         } else {
-            // Fallback: se AI fallisce, prova a prenderne una a caso dal DB se ce ne sono
             if (!quote) {
                  const dbQuote = await db.getRandomQuote();
                  if (dbQuote) setQuote(dbQuote);
@@ -74,15 +72,21 @@ export const Header: React.FC<HeaderProps> = ({
       }
   };
 
+  const getHeaderGradient = () => {
+    switch (theme) {
+      case 'evening': return 'from-slate-900 via-indigo-900 to-amber-900';
+      case 'accessible': return 'from-black via-black to-black border-b border-yellow-400';
+      default: return 'from-amber-500 via-orange-500 to-rose-500';
+    }
+  };
+
   return (
-    <header className="sticky top-0 z-40 shadow-lg shadow-orange-500/20 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white transition-all duration-300">
+    <header className={`sticky top-0 z-[60] shadow-lg transition-all duration-500 ${theme === 'accessible' ? '' : 'shadow-orange-500/20'} bg-gradient-to-r ${getHeaderGradient()} text-white`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-auto flex flex-col items-stretch">
         
-        {/* Riga Superiore: Logo, Citazione Desktop, Utente */}
         <div className="flex items-center justify-between gap-4 py-3">
-            {/* LOGO & SOLE INTERATTIVO */}
             <div className="flex items-center gap-3 md:gap-4 flex-shrink-0">
-              <Tooltip content="Clicca per una nuova ispirazione!" position="bottom">
+              <Tooltip content="Nuova ispirazione!" position="bottom">
                 <button 
                     onClick={fetchNewQuote}
                     disabled={loadingQuote}
@@ -100,13 +104,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <h1 className="font-display font-bold text-xl md:text-2xl tracking-tight leading-none text-white drop-shadow-sm">
                   Buon Umore
                 </h1>
-                <span className="text-[9px] md:text-[10px] text-orange-100 uppercase tracking-widest font-medium opacity-90">
+                <span className={`text-[9px] md:text-[10px] uppercase tracking-widest font-medium opacity-90 ${theme === 'accessible' ? 'text-yellow-400' : 'text-orange-100'}`}>
                     Notizie Positive
                 </span>
               </div>
             </div>
 
-            {/* CITAZIONE CENTRALE (Desktop) */}
             <div className="flex-1 px-4 md:px-12 text-center hidden md:block">
                 <div className="relative inline-block max-w-xl">
                     <p className={`font-display italic text-lg text-white/95 leading-snug transition-opacity duration-500 ${loadingQuote ? 'opacity-50' : 'opacity-100'}`}>
@@ -120,9 +123,68 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
             </div>
 
-            {/* AREA UTENTE */}
             <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-              <Tooltip content={currentUser ? (showFavoritesOnly ? "Mostra tutte" : "I miei salvati") : "Accedi"}>
+              {/* Menu Impostazioni */}
+              <div className="relative">
+                <Tooltip content="Vista & Leggibilità" position="bottom">
+                  <button 
+                    onClick={() => setShowSettings(!showSettings)}
+                    className={`p-2 rounded-full transition-all duration-300 bg-white/10 border-2 ${showSettings ? 'bg-white/30 border-white' : 'border-transparent hover:bg-white/20'}`}
+                  >
+                    <IconSettings className="w-5 h-5 md:w-6 md:h-6" />
+                  </button>
+                </Tooltip>
+
+                {showSettings && (
+                  <div className="absolute top-14 right-0 bg-white text-slate-800 shadow-2xl rounded-2xl p-4 w-64 z-[70] border border-slate-100 animate-in fade-in slide-in-from-top-2 origin-top-right">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Personalizza Vista</h4>
+                    
+                    {/* Switch Temi */}
+                    <div className="space-y-2 mb-6">
+                      <p className="text-[10px] font-bold text-slate-500 ml-1">TEMA</p>
+                      <div className="flex bg-slate-100 rounded-xl p-1">
+                        <button 
+                          onClick={() => onSetTheme('sunshine')}
+                          className={`flex-1 py-2 flex items-center justify-center rounded-lg transition-all ${theme === 'sunshine' ? 'bg-white shadow-sm text-joy-500' : 'text-slate-400'}`}
+                        >
+                          <IconSun className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => onSetTheme('evening')}
+                          className={`flex-1 py-2 flex items-center justify-center rounded-lg transition-all ${theme === 'evening' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}
+                        >
+                          <IconMoon className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => onSetTheme('accessible')}
+                          className={`flex-1 py-2 flex items-center justify-center rounded-lg transition-all ${theme === 'accessible' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}
+                        >
+                          <IconContrast className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Toggle Font */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Leggibilità</p>
+                      <button 
+                        onClick={onToggleReadableFont}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-all ${isReadableFont ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <IconType className="w-4 h-4" />
+                          <span className="text-xs font-bold">Font Alta Leggibilità</span>
+                        </div>
+                        <div className={`w-8 h-4 rounded-full relative transition-colors ${isReadableFont ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                          <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${isReadableFont ? 'left-4.5' : 'left-0.5'}`}></div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Tooltip content={currentUser ? (showFavoritesOnly ? "Mostra tutte" : "I miei salvati") : "Accedi"} position="bottom">
                   <button 
                     onClick={handleHeartClick}
                     className={`group p-2 rounded-full transition-all duration-300 border-2 ${
@@ -146,14 +208,13 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </>
               ) : (
-                <button onClick={onLoginClick} className="bg-white text-orange-600 px-4 py-1.5 rounded-full font-bold text-xs md:text-sm transition shadow-lg">
+                <button onClick={onLoginClick} className={`px-4 py-1.5 rounded-full font-bold text-xs md:text-sm transition shadow-lg ${theme === 'accessible' ? 'bg-yellow-400 text-black' : 'bg-white text-orange-600'}`}>
                   Entra
                 </button>
               )}
             </div>
         </div>
         
-        {/* Citazione Mobile: Spostata qui per essere visibile ed evitare sovrapposizioni */}
         <div className="md:hidden pb-3 pt-1 px-2">
             <div className={`bg-white/10 backdrop-blur-sm rounded-xl py-2.5 px-4 text-center border border-white/10 transition-all duration-500 ${loadingQuote ? 'opacity-50 animate-pulse' : 'opacity-100'}`}>
                 <p className="text-xs italic text-white leading-relaxed">
