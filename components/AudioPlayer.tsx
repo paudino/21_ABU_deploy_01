@@ -10,6 +10,7 @@ interface AudioPlayerProps {
     articleUrl: string;
     initialAudioBase64?: string;
     canPlay: boolean;
+    autoGenerate?: boolean; // Nuova prop per il caricamento predittivo
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({ 
@@ -17,7 +18,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     articleSummary, 
     articleUrl, 
     initialAudioBase64,
-    canPlay 
+    canPlay,
+    autoGenerate = false
 }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -25,6 +27,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     
     const audioContextRef = useRef<AudioContext | null>(null);
     const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+    const isGeneratingRef = useRef(false);
+
+    // Caricamento Predittivo Audio
+    useEffect(() => {
+        if (autoGenerate && !audioBase64 && canPlay && !isGeneratingRef.current) {
+            console.log("[PREDICTIVE] 🎙️ Generazione predittiva audio in corso...");
+            prepareAudio();
+        }
+    }, [autoGenerate, audioBase64, canPlay]);
 
     // Pulizia risorse al unmount
     useEffect(() => {
@@ -33,16 +44,31 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         };
     }, []);
 
+    const prepareAudio = async () => {
+        if (isGeneratingRef.current) return;
+        isGeneratingRef.current = true;
+        setIsLoading(true);
+        try {
+            const textToRead = `${articleTitle}. ${articleSummary}`;
+            const currentAudio = await generateAudio(textToRead);
+            if (currentAudio) {
+                setAudioBase64(currentAudio);
+                if (articleUrl) {
+                    db.updateArticleAudio(articleUrl, currentAudio).catch(e => console.error("Cache audio fallita", e));
+                }
+            }
+        } catch (e) {
+            console.error("Errore generazione predittiva:", e);
+        } finally {
+            setIsLoading(false);
+            isGeneratingRef.current = false;
+        }
+    };
+
     const stopAudio = () => {
         if (audioSourceRef.current) {
             try { audioSourceRef.current.stop(); } catch(e) {}
             audioSourceRef.current = null;
-        }
-        if (audioContextRef.current) {
-            // Non chiudiamo il context ogni volta per evitare limiti browser, 
-            // ma lo sospendiamo se necessario. Per ora stop semplice.
-            // try { audioContextRef.current.close(); } catch(e) {}
-            // audioContextRef.current = null;
         }
         setIsPlaying(false);
     };
@@ -55,85 +81,68 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             return;
         }
 
-        setIsLoading(true);
+        let currentAudio = audioBase64;
 
-        try {
-            let currentAudio = audioBase64;
-
-            // 1. Se non abbiamo l'audio, generiamolo
-            if (!currentAudio) {
+        if (!currentAudio) {
+            setIsLoading(true);
+            try {
                 console.log("[AudioPlayer] Generazione audio AI...");
                 const textToRead = `${articleTitle}. ${articleSummary}`;
                 currentAudio = await generateAudio(textToRead);
                 
                 if (currentAudio) {
                     setAudioBase64(currentAudio);
-                    // Salviamo in cache DB in background
                     if (articleUrl) {
                         db.updateArticleAudio(articleUrl, currentAudio).catch(e => console.error("Salvataggio audio fallito", e));
                     }
                 }
-            } else {
-                console.log("[AudioPlayer] Audio trovato in cache.");
+            } catch (e: any) {
+                console.error("Errore playback:", e);
+                alert(`Impossibile riprodurre l'audio: ${e.message}`);
+                setIsLoading(false);
+                return;
+            } finally {
+                setIsLoading(false);
             }
+        }
 
-            if (!currentAudio) throw new Error("Audio non disponibile (Risposta vuota AI)");
+        if (!currentAudio) return;
 
-            // 2. Setup Audio Context (Singleton Pattern per evitare limiti)
+        try {
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            
-            // Creiamo un nuovo context se non esiste o se è chiuso
             if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
                 audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
             }
-            
             const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') { await ctx.resume(); }
 
-            // CRITICO: I browser spesso sospendono l'audio se non c'è interazione diretta immediata.
-            // Forziamo il resume.
-            if (ctx.state === 'suspended') {
-                await ctx.resume();
-            }
-
-            // 3. Decodifica Ottimizzata (PCM 16-bit Little Endian -> Float32)
             const binaryString = atob(currentAudio);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
             for (let i = 0; i < len; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
-            
             const int16Data = new Int16Array(bytes.buffer);
             const float32Data = new Float32Array(int16Data.length);
-            
-            // Conversione veloce
             for (let i = 0; i < int16Data.length; i++) {
                 float32Data[i] = int16Data[i] / 32768.0;
             }
-
-            const audioBuffer = ctx.createBuffer(1, float32Data.length, 24000); // 24kHz fisso
+            const audioBuffer = ctx.createBuffer(1, float32Data.length, 24000);
             audioBuffer.getChannelData(0).set(float32Data);
 
-            // 4. Play
             const source = ctx.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(ctx.destination);
-            
             source.onended = () => {
                 setIsPlaying(false);
                 audioSourceRef.current = null;
             };
-
             source.start(0);
             audioSourceRef.current = source;
             setIsPlaying(true);
-
         } catch (e: any) {
-            console.error("Errore playback:", e);
-            alert(`Impossibile riprodurre l'audio: ${e.message}`);
+            console.error("Errore decodifica audio:", e);
             stopAudio();
-        } finally {
-            setIsLoading(false);
         }
     };
 
@@ -145,6 +154,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 </div>
                 <div>
                     <span className="block text-indigo-900 font-bold text-sm">Ascolta la notizia</span>
+                    {isLoading && !isPlaying && <span className="text-[10px] text-indigo-400 font-bold animate-pulse uppercase">AI in preparazione...</span>}
                 </div>
             </div>
             
@@ -160,7 +170,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                     ${!canPlay ? 'opacity-50 cursor-not-allowed grayscale' : ''}
                 `}
             >
-                {isLoading ? (
+                {isLoading && !audioBase64 ? (
                     <IconRefresh spin className="w-5 h-5" />
                 ) : isPlaying ? (
                     <>
