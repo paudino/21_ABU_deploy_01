@@ -7,7 +7,6 @@ import { resetQuotaBlock, isQuotaExhausted } from '../services/gemini/client';
 
 const CACHE_TTL_MINUTES = 60; 
 
-// Notizie di emergenza se tutto fallisce
 const EMERGENCY_NEWS: Article[] = [
     {
         title: "L'energia solare corre più veloce del previsto",
@@ -45,25 +44,53 @@ export const useNewsApp = () => {
 
   const activeFetchIdRef = useRef<number>(0);
 
+  // Inizializzazione: Auth + Seeding Categorie
   useEffect(() => {
-    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        const user = await db.getCurrentUserProfile();
-        setCurrentUser(user);
-        setShowLoginModal(false);
-        if (user) {
-          const ids = await db.getUserFavoritesIds(user.id);
-          setFavoriteArticleIds(ids);
+    const initApp = async () => {
+      console.log("[APP-INIT] 🚀 Avvio applicazione...");
+      
+      // 1. Gestione Auth
+      const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          const user = await db.getCurrentUserProfile();
+          setCurrentUser(user);
+          setShowLoginModal(false);
+          if (user) {
+            const ids = await db.getUserFavoritesIds(user.id);
+            setFavoriteArticleIds(ids);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          setFavoriteArticleIds(new Set());
+          setShowFavoritesOnly(false);
         }
-      } else if (event === 'SIGNED_OUT') {
-        setCurrentUser(null);
-        setFavoriteArticleIds(new Set());
-        setShowFavoritesOnly(false);
-      }
-    });
+      });
 
-    db.getCurrentUserProfile().then(setCurrentUser);
-    return () => subscription.unsubscribe();
+      // 2. Caricamento profilo iniziale
+      db.getCurrentUserProfile().then(setCurrentUser);
+
+      // 3. Seeding Categorie se DB vuoto
+      try {
+        await db.seedCategories();
+        const dbCats = await db.getCategories();
+        if (dbCats && dbCats.length > 0) {
+          setCategories(dbCats);
+          // Imposta la prima categoria disponibile come attiva se quella di default non esiste
+          if (!dbCats.find(c => c.id === activeCategoryId)) {
+            setActiveCategoryId(dbCats[0].id);
+          }
+        }
+      } catch (e) {
+        console.error("[APP-INIT] ❌ Errore durante il seeding delle categorie:", e);
+      }
+
+      return subscription;
+    };
+
+    const subPromise = initApp();
+    return () => {
+      subPromise.then(sub => sub.unsubscribe());
+    };
   }, []);
 
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
@@ -72,8 +99,8 @@ export const useNewsApp = () => {
     setNotification(null);
 
     try {
-      // 1. TENTA IL DB (Con attesa aumentata)
       if (!forceAi) {
+        console.log(`[FETCH] 🔍 Controllo cache per: ${label}`);
         const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
         if (currentFetchId !== activeFetchIdRef.current) return;
 
@@ -84,11 +111,11 @@ export const useNewsApp = () => {
         }
       }
 
-      // 2. TENTA L'AI
       if (isQuotaExhausted() && !forceAi) {
           throw new Error("QUOTA_LIMIT");
       }
 
+      console.log(`[FETCH] 🤖 Richiesta AI per: ${label}`);
       const aiArticles = await fetchPositiveNews(query, label);
       if (currentFetchId !== activeFetchIdRef.current) return;
 
@@ -100,18 +127,16 @@ export const useNewsApp = () => {
       }
 
     } catch (error: any) {
-      console.warn("[FETCH-NEWS] Fallimento catena di recupero:", error.message);
-      
+      console.warn("[FETCH] Fallimento:", error.message);
       if (currentFetchId !== activeFetchIdRef.current) return;
 
-      // 3. ULTIMO FALLBACK: Dati storici o emergenza
       const oldCached = await db.getCachedArticles(label, 0);
       if (oldCached.length > 0) {
           setArticles(oldCached);
           setNotification("Visualizzo notizie archiviate (AI temporaneamente offline).");
       } else {
           setArticles(EMERGENCY_NEWS);
-          setNotification("Servizio AI in pausa per troppa euforia! Ecco alcune notizie sempreverdi.");
+          setNotification("Servizio AI in pausa. Ecco alcune notizie sempreverdi.");
       }
     } finally {
       if (currentFetchId === activeFetchIdRef.current) {
@@ -187,7 +212,7 @@ export const useNewsApp = () => {
       }
     },
     loadNews: () => {
-      resetQuotaBlock(); // Reset manuale della quota se l'utente clicca aggiorna
+      resetQuotaBlock();
       if (searchTerm) fetchNews(searchTerm, searchTerm, true);
       else {
         const cat = categories.find(c => c.id === activeCategoryId);
