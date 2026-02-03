@@ -1,44 +1,30 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-// Timestamp dell'ultimo errore 429 per bloccare temporaneamente le chiamate
 let lastQuotaExhaustedTime = 0;
-const QUOTA_BLOCK_DURATION = 60 * 1000 * 2; // 2 minuti
+const QUOTA_BLOCK_DURATION = 60 * 1000 * 2; 
 
-/**
- * Client Gemini factory.
- */
 export const getClient = () => {
   const key = process.env.API_KEY;
-  if (!key || key === 'PLACEHOLDER_API_KEY') {
-    console.error("[GEMINI-CLIENT] ❌ API KEY MANCANTE!");
-  }
   return new GoogleGenAI({ apiKey: key || '' });
 };
 
-/**
- * Verifica se siamo in un periodo di blocco quota.
- */
 export const isQuotaExhausted = () => {
   return (Date.now() - lastQuotaExhaustedTime) < QUOTA_BLOCK_DURATION;
 };
 
-/**
- * Esegue una funzione Gemini con logica di retry e gestione fallback.
- */
+export const resetQuotaBlock = () => {
+  lastQuotaExhaustedTime = 0;
+};
+
 export const callGeminiWithRetry = async <T>(
     operation: () => Promise<T>, 
-    maxRetries = 2, 
-    delayMs = 2000
+    maxRetries = 1, // Ridotto per fallire velocemente e passare al fallback
+    delayMs = 1000
 ): Promise<T | null> => {
-    if (isQuotaExhausted()) {
-        console.warn("[GEMINI-CLIENT] ⏳ Chiamata annullata: Quota ancora in fase di ripristino.");
-        return null;
-    }
-
     let lastError: any;
     
-    for (let i = 0; i < maxRetries; i++) {
+    for (let i = 0; i <= maxRetries; i++) {
         try {
             return await operation();
         } catch (error: any) {
@@ -47,14 +33,13 @@ export const callGeminiWithRetry = async <T>(
             const isRateLimit = errorMsg.includes('429') || error?.status === 429;
             
             if (isRateLimit) {
-                lastQuotaExhaustedTime = Date.now();
-                console.error(`[GEMINI-RETRY] 🛑 Quota esaurita (429). Blocco AI per 2 minuti.`);
-                
-                if (i < maxRetries - 1) {
-                    const backoff = delayMs * Math.pow(2, i);
-                    await new Promise(resolve => setTimeout(resolve, backoff));
+                // Non blocchiamo subito, lasciamo che il chiamante decida se provare il fallback
+                if (i < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
                     continue;
                 }
+                // Solo all'ultimo fallimento impostiamo il blocco globale
+                lastQuotaExhaustedTime = Date.now();
             }
             break;
         }
