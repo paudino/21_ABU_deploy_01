@@ -1,35 +1,17 @@
 
-import { getClient } from './client';
+import { getClient, callGeminiWithRetry, isQuotaExhausted } from './client';
 import { Article } from '../../types';
 
-/**
- * Cerca notizie positive usando Gemini 3 con Google Search Grounding.
- */
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
-  console.log(`[GEMINI-NEWS] 🔍 Avvio ricerca notizie per: "${categoryLabel}"`);
-  
-  const ai = getClient();
-  
-  const prompt = `
-    Agisci come un giornalista esperto. Cerca sul web 3 notizie RECENTI e POSITIVE riguardanti: "${promptCategory}".
-    Focus su: innovazioni, successi, progressi scientifici o atti di solidarietà.
-    
-    RESTITUISCI I DATI IN QUESTO FORMATO JSON (NON AGGIUNGERE TESTO PRIMA O DOPO):
-    [
-      {
-        "title": "Titolo",
-        "summary": "Riassunto",
-        "source": "Fonte",
-        "date": "YYYY-MM-DD",
-        "sentimentScore": 0.9
-      }
-    ]
-  `;
+  if (isQuotaExhausted()) return [];
 
-  try {
-    console.log("[GEMINI-NEWS] 📡 Invio richiesta con Google Search...");
-    // NOTA: Con googleSearch NON usiamo responseMimeType: "application/json" 
-    // perché il modello deve poter inserire i metadati di grounding.
+  // 1. Tentativo con Google Search (Più preciso ma quota limitata)
+  const articles = await callGeminiWithRetry(async () => {
+    console.log(`[GEMINI-NEWS] 📡 Tentativo con Google Search: ${categoryLabel}`);
+    const ai = getClient();
+    
+    const prompt = `Cerca 3 notizie RECENTI e POSITIVE su: "${promptCategory}". Restituisci ESCLUSIVAMENTE un array JSON con: title, summary, source, date (YYYY-MM-DD), sentimentScore.`;
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -38,44 +20,45 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
       }
     });
 
-    const responseText = response.text || "";
-    console.log("[GEMINI-NEWS] 📥 Risposta ricevuta (raw):", responseText);
+    return parseNewsResponse(response, categoryLabel);
+  });
 
-    // Estrazione metadati di grounding (URL reali)
+  if (articles && articles.length > 0) return articles;
+
+  // 2. Fallback senza Google Search (Usa conoscenza interna, quota più ampia)
+  console.log(`[GEMINI-NEWS] 🔄 Fallback: Generazione senza Search per ${categoryLabel}`);
+  return await callGeminiWithRetry(async () => {
+    const ai = getClient();
+    const prompt = `Genera 3 notizie POSITIVE basate su fatti reali recenti (Conoscenza AI) su: "${promptCategory}". Restituisci JSON array: title, summary, source, date, sentimentScore.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt
+    });
+
+    return parseNewsResponse(response, categoryLabel);
+  }) || [];
+};
+
+const parseNewsResponse = (response: any, categoryLabel: string): Article[] => {
+  const text = response.text || "";
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return [];
+
+  try {
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const webLinks = groundingChunks
       .filter((chunk: any) => chunk.web)
       .map((chunk: any) => chunk.web.uri);
 
-    // Estrazione JSON dal testo (se il modello risponde con markdown o testo extra)
-    let jsonStr = responseText;
-    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
-    }
-
-    try {
-      const rawArticles = JSON.parse(jsonStr);
-      console.log(`[GEMINI-NEWS] ✅ Parsing completato.`);
-
-      return rawArticles.map((a: any, index: number) => ({
-        title: a.title || "Notizia Positiva",
-        summary: a.summary || "Contenuto non disponibile",
-        source: a.source || "Web",
-        // Usiamo il link reale da Google Search se disponibile, altrimenti fallback
-        url: webLinks[index] || `https://www.google.com/search?q=${encodeURIComponent((a.title || "") + " " + (a.source || ""))}`,
-        date: a.date || new Date().toISOString().split('T')[0],
-        category: categoryLabel,
-        imageUrl: '',
-        sentimentScore: a.sentimentScore || 0.8
-      }));
-    } catch (parseError) {
-      console.error("[GEMINI-NEWS] ❌ Errore parsing JSON:", parseError);
-      return [];
-    }
-
-  } catch (error) {
-    console.error("[GEMINI-NEWS] ❌ Errore API Gemini:", error);
+    const rawArticles = JSON.parse(jsonMatch[0]);
+    return rawArticles.map((a: any, idx: number) => ({
+      ...a,
+      url: webLinks[idx] || `https://www.google.com/search?q=${encodeURIComponent(a.title)}`,
+      category: categoryLabel,
+      imageUrl: ''
+    }));
+  } catch (e) {
     return [];
   }
 };
