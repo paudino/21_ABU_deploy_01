@@ -63,6 +63,8 @@ export const useNewsApp = () => {
           setCurrentUser(null);
           setFavoriteArticleIds(new Set());
           setShowFavoritesOnly(false);
+          // Al logout torniamo alle categorie di default
+          setCategories(DEFAULT_CATEGORIES);
         }
       });
 
@@ -75,10 +77,6 @@ export const useNewsApp = () => {
         const dbCats = await db.getCategories();
         if (dbCats && dbCats.length > 0) {
           setCategories(dbCats);
-          // Imposta la prima categoria disponibile come attiva se quella di default non esiste
-          if (!dbCats.find(c => c.id === activeCategoryId)) {
-            setActiveCategoryId(dbCats[0].id);
-          }
         }
       } catch (e) {
         console.error("[APP-INIT] ❌ Errore durante il seeding delle categorie:", e);
@@ -92,6 +90,19 @@ export const useNewsApp = () => {
       subPromise.then(sub => sub.unsubscribe());
     };
   }, []);
+
+  // Effetto per ricaricare le categorie quando cambia l'utente (Login/Logout)
+  useEffect(() => {
+    const refreshCategories = async () => {
+        const dbCats = await db.getCategories(currentUser?.id);
+        if (dbCats && dbCats.length > 0) {
+            setCategories(dbCats);
+        } else {
+            setCategories(DEFAULT_CATEGORIES);
+        }
+    };
+    refreshCategories();
+  }, [currentUser?.id]);
 
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
     const currentFetchId = ++activeFetchIdRef.current;
@@ -205,10 +216,21 @@ export const useNewsApp = () => {
     },
     handleAddCategory: async (label: string) => {
       if (!currentUser) return setShowLoginModal(true);
+      
+      // Controllo duplicati case-insensitive
+      const exists = categories.some(c => c.label.toLowerCase() === label.toLowerCase().trim());
+      if (exists) {
+        setNotification(`La categoria "${label}" esiste già!`);
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+
       const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
       if (cat) {
         setCategories(prev => [...prev, cat]);
         setActiveCategoryId(cat.id);
+        setNotification(`Categoria "${label}" aggiunta con successo!`);
+        setTimeout(() => setNotification(null), 3000);
       }
     },
     loadNews: () => {
