@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { CategoryBar } from './components/CategoryBar';
 import { ArticleList } from './components/ArticleList';
@@ -9,7 +9,7 @@ import { DailyDeed } from './components/DailyDeed';
 import { ArticleDetail } from './components/ArticleDetail';
 import { ShareModal } from './components/ShareModal';
 import { useNewsApp } from './hooks/useNewsApp';
-import { Article } from './types';
+import { Article, Theme } from './types';
 
 function App() {
   const {
@@ -37,7 +37,23 @@ function App() {
     handleArticleUpdate
   } = useNewsApp();
 
+  // Stati per Temi Dinamici e Leggibilità
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('app-theme') as Theme) || 'sunshine');
+  const [isReadableFont, setIsReadableFont] = useState<boolean>(() => localStorage.getItem('app-readable-font') === 'true');
   const [sharingArticle, setSharingArticle] = useState<Article | null>(null);
+
+  // Aggiorna persistenza e classi al cambio preferenze
+  useEffect(() => {
+    localStorage.setItem('app-theme', theme);
+    localStorage.setItem('app-readable-font', String(isReadableFont));
+    
+    // Applica classe al body per il font
+    if (isReadableFont) {
+      document.body.classList.add('font-accessible');
+    } else {
+      document.body.classList.remove('font-accessible');
+    }
+  }, [theme, isReadableFont]);
 
   const handleOpenShare = (article: Article) => {
     if (!currentUser) {
@@ -47,26 +63,43 @@ function App() {
     setSharingArticle(article);
   };
 
+  const getBackgroundImage = () => {
+    switch (theme) {
+      case 'evening': return "https://images.unsplash.com/photo-1519681393784-d120267933ba?q=80&w=2070&auto=format&fit=crop";
+      case 'accessible': return ""; // Nessuna immagine per alto contrasto
+      default: return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2073&auto=format&fit=crop";
+    }
+  };
+
   return (
-    <div className="min-h-screen relative font-sans text-slate-900 flex flex-col">
+    <div className={`min-h-screen relative flex flex-col transition-colors duration-500 ${theme === 'accessible' ? 'bg-black text-white' : 'text-slate-900'}`}>
       
       {/* Sfondo Immagine Fisso */}
       <div className="fixed inset-0 z-[-1]">
-        <img 
-          src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2073&auto=format&fit=crop" 
-          alt="Sunset Background" 
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-orange-100/40 via-white/20 to-orange-50/60 backdrop-blur-[0px]"></div>
+        {theme !== 'accessible' && (
+          <img 
+            src={getBackgroundImage()} 
+            alt="Theme Background" 
+            className="w-full h-full object-cover transition-opacity duration-1000"
+          />
+        )}
+        <div className={`absolute inset-0 backdrop-blur-[0px] transition-colors duration-500 ${
+            theme === 'evening' ? 'bg-indigo-950/40' : 
+            theme === 'accessible' ? 'bg-black' : 'bg-gradient-to-b from-orange-100/40 via-white/20 to-orange-50/60'
+        }`}></div>
       </div>
 
       {/* Header */}
       <Header 
         currentUser={currentUser}
         showFavoritesOnly={showFavoritesOnly}
+        theme={theme}
+        isReadableFont={isReadableFont}
         onToggleFavorites={() => setShowFavoritesOnly(!showFavoritesOnly)}
         onLoginClick={() => setShowLoginModal(true)}
         onLogout={handleLogout}
+        onSetTheme={setTheme}
+        onToggleReadableFont={() => setIsReadableFont(!isReadableFont)}
       />
 
       {/* Barra Categorie con Ricerca */}
@@ -93,6 +126,7 @@ function App() {
           showFavoritesOnly={showFavoritesOnly}
           favoriteIds={favoriteArticleIds}
           currentUser={currentUser}
+          theme={theme}
           onArticleClick={setSelectedArticle}
           onRefresh={loadNews}
           onImageGenerated={onImageGenerated}
