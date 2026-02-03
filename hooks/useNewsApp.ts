@@ -3,8 +3,31 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
+import { resetQuotaBlock, isQuotaExhausted } from '../services/gemini/client';
 
 const CACHE_TTL_MINUTES = 60; 
+
+// Notizie di emergenza se tutto fallisce
+const EMERGENCY_NEWS: Article[] = [
+    {
+        title: "L'energia solare corre più veloce del previsto",
+        summary: "Nuovi dati mostrano che la transizione verso le rinnovabili sta accelerando globalmente, riducendo le emissioni più rapidamente delle stime iniziali.",
+        source: "Green Report",
+        url: "https://www.google.com/search?q=energia+solare+crescita",
+        date: new Date().toISOString().split('T')[0],
+        category: "Tecnologia",
+        sentimentScore: 0.95
+    },
+    {
+        title: "Scoperta una nuova barriera corallina in salute",
+        summary: "Esploratori marini hanno individuato un vasto ecosistema corallino incontaminato che mostra una resilienza inaspettata ai cambiamenti climatici.",
+        source: "Nature World",
+        url: "https://www.google.com/search?q=barriera+corallina+salute",
+        date: new Date().toISOString().split('T')[0],
+        category: "Ambiente",
+        sentimentScore: 0.92
+    }
+];
 
 export const useNewsApp = () => {
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
@@ -21,7 +44,6 @@ export const useNewsApp = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const activeFetchIdRef = useRef<number>(0);
-  const isFetchingRef = useRef(false);
 
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
@@ -44,83 +66,56 @@ export const useNewsApp = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        let dbCats = await db.getCategories(currentUser?.id);
-        if (dbCats && dbCats.length > 0) {
-          setCategories(dbCats);
-        }
-      } catch (err) {}
-    };
-    loadCategories();
-  }, [currentUser?.id]);
-
-  useEffect(() => {
-    if (categories.length > 0 && !searchTerm && !showFavoritesOnly) {
-      const isValid = categories.some(c => c.id === activeCategoryId);
-      if (!activeCategoryId || !isValid) {
-        setActiveCategoryId(categories[0].id);
-      }
-    }
-  }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
-
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
     const currentFetchId = ++activeFetchIdRef.current;
-    
-    isFetchingRef.current = true;
     setLoading(true);
     setNotification(null);
 
     try {
       // 1. TENTA IL DB (Con attesa aumentata)
       if (!forceAi) {
-        console.log(`[NEWS-APP] 📂 Controllo cache per: ${label}`);
         const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
-        
         if (currentFetchId !== activeFetchIdRef.current) return;
 
         if (freshCached && freshCached.length > 0) {
-          console.log(`[NEWS-APP] ✅ Cache valida trovata.`);
           setArticles(freshCached);
           setLoading(false);
-          isFetchingRef.current = false;
           return;
         }
-        console.log(`[NEWS-APP] 📭 Cache vuota o DB lento.`);
       }
 
-      // 2. TENTA L'AI (Solo se necessario o forzato)
-      // Aspettiamo un secondo extra per distanziare le chiamate
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      if (currentFetchId !== activeFetchIdRef.current) return;
+      // 2. TENTA L'AI
+      if (isQuotaExhausted() && !forceAi) {
+          throw new Error("QUOTA_LIMIT");
+      }
 
-      console.log(`[NEWS-APP] 🤖 Lancio generazione AI per: ${label}`);
       const aiArticles = await fetchPositiveNews(query, label);
-      
       if (currentFetchId !== activeFetchIdRef.current) return;
 
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
         db.saveArticles(label, aiArticles);
       } else {
-        // Fallback estremo: prova a recuperare QUALSIASI cosa dal DB anche se vecchia
-        const oldCached = await db.getCachedArticles(label, 0);
-        if (currentFetchId === activeFetchIdRef.current) {
-          if (oldCached.length > 0) {
-            setArticles(oldCached);
-            setNotification("Servizio AI al momento limitato. Visualizzo notizie meno recenti.");
-          } else {
-            setNotification("Nessuna notizia disponibile al momento. Il server sta riposando, riprova tra poco!");
-          }
-        }
+        throw new Error("AI_FAILED");
       }
-    } catch (error) {
-      console.error("[FETCH-NEWS] ❌ Errore critico:", error);
+
+    } catch (error: any) {
+      console.warn("[FETCH-NEWS] Fallimento catena di recupero:", error.message);
+      
+      if (currentFetchId !== activeFetchIdRef.current) return;
+
+      // 3. ULTIMO FALLBACK: Dati storici o emergenza
+      const oldCached = await db.getCachedArticles(label, 0);
+      if (oldCached.length > 0) {
+          setArticles(oldCached);
+          setNotification("Visualizzo notizie archiviate (AI temporaneamente offline).");
+      } else {
+          setArticles(EMERGENCY_NEWS);
+          setNotification("Servizio AI in pausa per troppa euforia! Ecco alcune notizie sempreverdi.");
+      }
     } finally {
       if (currentFetchId === activeFetchIdRef.current) {
         setLoading(false);
-        isFetchingRef.current = false;
       }
     }
   }, []);
@@ -192,6 +187,7 @@ export const useNewsApp = () => {
       }
     },
     loadNews: () => {
+      resetQuotaBlock(); // Reset manuale della quota se l'utente clicca aggiorna
       if (searchTerm) fetchNews(searchTerm, searchTerm, true);
       else {
         const cat = categories.find(c => c.id === activeCategoryId);
