@@ -16,6 +16,7 @@ function App() {
     categories,
     activeCategoryId,
     articles,
+    nextArticle, // Acquisizione articolo successivo
     activeCategoryLabel,
     loading,
     selectedArticle,
@@ -146,6 +147,7 @@ function App() {
       {selectedArticle && (
         <ArticleDetail 
           article={selectedArticle} 
+          nextArticle={nextArticle} // Passaggio dell'articolo successivo
           currentUser={currentUser} 
           isFavorite={selectedArticle.id ? favoriteArticleIds.has(selectedArticle.id) : false}
           onClose={() => setSelectedArticle(null)}
