@@ -1,4 +1,3 @@
-
 export const databaseSchema = `
 -- ============================================================================
 -- ⚠️ ESEGUI QUESTO SCRIPT NEL 'SQL EDITOR' DI SUPABASE ⚠️
