@@ -47,14 +47,11 @@ export const useNewsApp = () => {
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        // Tentativo veloce al DB
         let dbCats = await db.getCategories(currentUser?.id);
         if (dbCats && dbCats.length > 0) {
           setCategories(dbCats);
         }
-      } catch (err) {
-        // Fallback già gestito dallo stato iniziale
-      }
+      } catch (err) {}
     };
     loadCategories();
   }, [currentUser?.id]);
@@ -76,22 +73,28 @@ export const useNewsApp = () => {
     setNotification(null);
 
     try {
-      // 1. Prova veloce con la cache
+      // 1. TENTA IL DB (Con attesa aumentata)
       if (!forceAi) {
-        // Aggiungiamo una race tra cache e AI: se la cache non risponde in 2 secondi, lanciamo AI
+        console.log(`[NEWS-APP] 📂 Controllo cache per: ${label}`);
         const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
         
         if (currentFetchId !== activeFetchIdRef.current) return;
 
         if (freshCached && freshCached.length > 0) {
+          console.log(`[NEWS-APP] ✅ Cache valida trovata.`);
           setArticles(freshCached);
           setLoading(false);
           isFetchingRef.current = false;
           return;
         }
+        console.log(`[NEWS-APP] 📭 Cache vuota o DB lento.`);
       }
 
-      // 2. Chiamata AI (se cache vuota o lenta)
+      // 2. TENTA L'AI (Solo se necessario o forzato)
+      // Aspettiamo un secondo extra per distanziare le chiamate
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (currentFetchId !== activeFetchIdRef.current) return;
+
       console.log(`[NEWS-APP] 🤖 Lancio generazione AI per: ${label}`);
       const aiArticles = await fetchPositiveNews(query, label);
       
@@ -99,29 +102,21 @@ export const useNewsApp = () => {
 
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        
-        // Salvataggio asincrono in background
-        db.saveArticles(label, aiArticles).then(saved => {
-          if (saved && saved.length > 0 && currentFetchId === activeFetchIdRef.current) {
-              setArticles(current => {
-                const idMap = new Map(saved.map(s => [s.url, s.id]));
-                return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
-              });
-          }
-        });
+        db.saveArticles(label, aiArticles);
       } else {
-        // Ultima spiaggia: prova a vedere se c'è cache vecchia (senza limiti TTL)
-        if (!forceAi) {
-            const oldCached = await db.getCachedArticles(label, 0);
-            if (currentFetchId === activeFetchIdRef.current && oldCached.length > 0) {
-                setArticles(oldCached);
-            } else if (currentFetchId === activeFetchIdRef.current) {
-                setNotification("Nessuna notizia trovata al momento.");
-            }
+        // Fallback estremo: prova a recuperare QUALSIASI cosa dal DB anche se vecchia
+        const oldCached = await db.getCachedArticles(label, 0);
+        if (currentFetchId === activeFetchIdRef.current) {
+          if (oldCached.length > 0) {
+            setArticles(oldCached);
+            setNotification("Servizio AI al momento limitato. Visualizzo notizie meno recenti.");
+          } else {
+            setNotification("Nessuna notizia disponibile al momento. Il server sta riposando, riprova tra poco!");
+          }
         }
       }
     } catch (error) {
-      console.error("[FETCH-NEWS] Errore critico:", error);
+      console.error("[FETCH-NEWS] ❌ Errore critico:", error);
     } finally {
       if (currentFetchId === activeFetchIdRef.current) {
         setLoading(false);
@@ -138,11 +133,8 @@ export const useNewsApp = () => {
         db.getUserFavoriteArticles(currentUser.id).then(favs => {
           if (currentFetchId === activeFetchIdRef.current) {
             setArticles(favs);
-            setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
             setLoading(false);
           }
-        }).catch(() => {
-          if (currentFetchId === activeFetchIdRef.current) setLoading(false);
         });
       }
     } else if (searchTerm) {
@@ -196,14 +188,12 @@ export const useNewsApp = () => {
       const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
       if (cat) {
         setCategories(prev => [...prev, cat]);
-        setSearchTerm('');
         setActiveCategoryId(cat.id);
       }
     },
     loadNews: () => {
-      if (searchTerm) {
-        fetchNews(searchTerm, searchTerm, true);
-      } else {
+      if (searchTerm) fetchNews(searchTerm, searchTerm, true);
+      else {
         const cat = categories.find(c => c.id === activeCategoryId);
         if (cat) fetchNews(cat.value, cat.label, true);
       }
@@ -219,13 +209,9 @@ export const useNewsApp = () => {
         id = saved[0]?.id;
       }
       if (!id) return;
-
       const isFav = favoriteArticleIds.has(id);
       if (isFav) {
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
-        if (showFavoritesOnly) {
-          setArticles(prev => prev.filter(a => a.id !== id));
-        }
         await db.removeFavorite(id, currentUser.id);
       } else {
         setFavoriteArticleIds(prev => new Set(prev).add(id!));
