@@ -57,31 +57,25 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
 
   useEffect(() => {
     handleScroll();
-    const handleResize = () => handleScroll();
-    window.addEventListener('resize', handleResize);
-    // Timeout per gestire il caricamento asincrono degli elementi
-    const t = setTimeout(handleScroll, 500);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      clearTimeout(t);
-    };
+    window.addEventListener('resize', handleScroll);
+    return () => window.removeEventListener('resize', handleScroll);
   }, [categories]);
 
   return (
-    <div className="sticky top-[108px] md:top-20 z-50 backdrop-blur-md bg-white/80 border-b border-orange-100 py-2 shadow-sm transition-all duration-300">
+    <div className="sticky top-[108px] md:top-20 z-50 backdrop-blur-md bg-white/70 border-b border-white/50 py-3 shadow-sm transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-3">
          
          <span className="text-xs font-bold text-joy-800 uppercase tracking-widest mr-2 hidden md:block opacity-70 flex-shrink-0">
             Filtra:
          </span>
 
-         <div className="flex-1 relative flex items-center overflow-hidden h-14">
+         <div className="flex-1 relative flex items-center">
              <div className={`absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white/90 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showLeftShadow ? 'opacity-100' : 'opacity-0'}`}></div>
 
              <div 
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2 pb-2 h-full scroll-smooth no-scrollbar-hidden"
+                className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2 pb-5 md:pb-4 scroll-smooth"
              >
                  {categories.map(cat => (
                    <button
@@ -99,13 +93,13 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                      {cat.label}
                    </button>
                  ))}
-                 <div className="w-10 flex-shrink-0"></div>
+                 <div className="w-6 flex-shrink-0 md:hidden"></div>
              </div>
 
-             <div className={`absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-white/90 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showRightShadow ? 'opacity-100' : 'opacity-0'}`}></div>
+             <div className={`absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white/90 to-transparent z-10 pointer-events-none transition-opacity duration-300 ${showRightShadow ? 'opacity-100' : 'opacity-0'}`}></div>
          </div>
 
-         <div className="flex items-center gap-2 border-l border-slate-300 pl-3 flex-shrink-0 h-10">
+         <div className="flex items-center gap-2 border-l border-slate-300 pl-3 flex-shrink-0 pb-1">
               <div className="relative">
                 <Tooltip content="Cerca notizie libere" position="bottom" align="right">
                     <button 
