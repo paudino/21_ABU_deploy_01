@@ -1,36 +1,12 @@
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
-import { resetQuotaBlock, isQuotaExhausted } from '../services/gemini/client';
-
-const CACHE_TTL_MINUTES = 60; 
-
-const EMERGENCY_NEWS: Article[] = [
-    {
-        title: "L'energia solare corre più veloce del previsto",
-        summary: "Nuovi dati mostrano che la transizione verso le rinnovabili sta accelerando globalmente, riducendo le emissioni più rapidamente delle stime iniziali.",
-        source: "Green Report",
-        url: "https://www.google.com/search?q=energia+solare+crescita",
-        date: new Date().toISOString().split('T')[0],
-        category: "Tecnologia",
-        sentimentScore: 0.95
-    },
-    {
-        title: "Scoperta una nuova barriera corallina in salute",
-        summary: "Esploratori marini hanno individuato un vasto ecosistema corallino incontaminato che mostra una resilienza inaspettata ai cambiamenti climatici.",
-        source: "Nature World",
-        url: "https://www.google.com/search?q=barriera+corallina+salute",
-        date: new Date().toISOString().split('T')[0],
-        category: "Ambiente",
-        sentimentScore: 0.92
-    }
-];
 
 export const useNewsApp = () => {
-  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
-  const [activeCategoryId, setActiveCategoryId] = useState<string>('tech'); 
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [activeCategoryId, setActiveCategoryId] = useState<string>(''); 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -40,137 +16,112 @@ export const useNewsApp = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
+
+  // Nuovo stato per la ricerca libera
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const activeFetchIdRef = useRef<number>(0);
-
-  // Inizializzazione: Auth + Seeding Categorie
+  // 1. GESTIONE AUTENTICAZIONE
   useEffect(() => {
-    const initApp = async () => {
-      console.log("[APP-INIT] 🚀 Avvio applicazione...");
-      
-      // 1. Gestione Auth
-      const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          const user = await db.getCurrentUserProfile();
-          setCurrentUser(user);
-          setShowLoginModal(false);
-          if (user) {
-            const ids = await db.getUserFavoritesIds(user.id);
-            setFavoriteArticleIds(ids);
-          }
-        } else if (event === 'SIGNED_OUT') {
-          setCurrentUser(null);
-          setFavoriteArticleIds(new Set());
-          setShowFavoritesOnly(false);
-          // Al logout torniamo alle categorie di default
-          setCategories(DEFAULT_CATEGORIES);
+    const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        const user = await db.getCurrentUserProfile();
+        setCurrentUser(user);
+        setShowLoginModal(false);
+        if (user) {
+          const ids = await db.getUserFavoritesIds(user.id);
+          setFavoriteArticleIds(ids);
         }
-      });
-
-      // 2. Caricamento profilo iniziale
-      db.getCurrentUserProfile().then(setCurrentUser);
-
-      // 3. Seeding Categorie se DB vuoto
-      try {
-        await db.seedCategories();
-        const dbCats = await db.getCategories();
-        if (dbCats && dbCats.length > 0) {
-          setCategories(dbCats);
-        }
-      } catch (e) {
-        console.error("[APP-INIT] ❌ Errore durante il seeding delle categorie:", e);
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        setFavoriteArticleIds(new Set());
+        setShowFavoritesOnly(false);
       }
+    });
 
-      return subscription;
-    };
-
-    const subPromise = initApp();
-    return () => {
-      subPromise.then(sub => sub.unsubscribe());
-    };
+    db.getCurrentUserProfile().then(setCurrentUser);
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Effetto per ricaricare le categorie quando cambia l'utente (Login/Logout)
+  // 2. CARICAMENTO CATEGORIE
   useEffect(() => {
-    const refreshCategories = async () => {
-        const dbCats = await db.getCategories(currentUser?.id);
-        if (dbCats && dbCats.length > 0) {
-            setCategories(dbCats);
+    const loadCategories = async () => {
+      try {
+        let dbCats = await db.getCategories(currentUser?.id);
+        if (!dbCats || dbCats.length === 0) {
+          setCategories(DEFAULT_CATEGORIES);
+          db.seedCategories();
         } else {
-            setCategories(DEFAULT_CATEGORIES);
+          setCategories(dbCats);
         }
+      } catch (err) {
+        setCategories(DEFAULT_CATEGORIES);
+      }
     };
-    refreshCategories();
+    loadCategories();
   }, [currentUser?.id]);
 
+  // 3. IMPOSTAZIONE CATEGORIA INIZIALE
+  useEffect(() => {
+    if (categories.length > 0 && !searchTerm && !showFavoritesOnly) {
+      const isValid = categories.some(c => c.id === activeCategoryId);
+      if (!activeCategoryId || !isValid) {
+        setActiveCategoryId(categories[0].id);
+      }
+    }
+  }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
+
+  // 4. FUNZIONE CORE CARICAMENTO NOTIZIE
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
-    const currentFetchId = ++activeFetchIdRef.current;
     setLoading(true);
     setNotification(null);
-
     try {
       if (!forceAi) {
-        console.log(`[FETCH] 🔍 Controllo cache per: ${label}`);
-        const freshCached = await db.getCachedArticles(label, CACHE_TTL_MINUTES);
-        if (currentFetchId !== activeFetchIdRef.current) return;
-
-        if (freshCached && freshCached.length > 0) {
-          setArticles(freshCached);
-          setLoading(false);
-          return;
+        const cached = await db.getCachedArticles(label);
+        if (cached && cached.length > 0) {
+          setArticles(cached); 
+          setLoading(false); 
+          return; 
         }
       }
 
-      if (isQuotaExhausted() && !forceAi) {
-          throw new Error("QUOTA_LIMIT");
-      }
-
-      console.log(`[FETCH] 🤖 Richiesta AI per: ${label}`);
+      // Se non c'è cache o forziamo l'AI
       const aiArticles = await fetchPositiveNews(query, label);
-      if (currentFetchId !== activeFetchIdRef.current) return;
-
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        db.saveArticles(label, aiArticles);
+        db.saveArticles(label, aiArticles).then(saved => {
+          if (saved && saved.length > 0) {
+              setArticles(current => {
+                const idMap = new Map(saved.map(s => [s.url, s.id]));
+                return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
+              });
+          }
+        });
       } else {
-        throw new Error("AI_FAILED");
+        setNotification(forceAi ? "Nessuna nuova notizia trovata per questa ricerca." : "Archivio vuoto.");
       }
-
-    } catch (error: any) {
-      console.warn("[FETCH] Fallimento:", error.message);
-      if (currentFetchId !== activeFetchIdRef.current) return;
-
-      const oldCached = await db.getCachedArticles(label, 0);
-      if (oldCached.length > 0) {
-          setArticles(oldCached);
-          setNotification("Visualizzo notizie archiviate (AI temporaneamente offline).");
-      } else {
-          setArticles(EMERGENCY_NEWS);
-          setNotification("Servizio AI in pausa. Ecco alcune notizie sempreverdi.");
-      }
+    } catch (error) {
+      console.error("[FETCH-NEWS] Errore:", error);
     } finally {
-      if (currentFetchId === activeFetchIdRef.current) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, []);
 
+  // 5. EFFETTO REATTIVO CARICAMENTO
   useEffect(() => {
     if (showFavoritesOnly) {
       if (currentUser) {
-        const currentFetchId = ++activeFetchIdRef.current;
         setLoading(true);
         db.getUserFavoriteArticles(currentUser.id).then(favs => {
-          if (currentFetchId === activeFetchIdRef.current) {
-            setArticles(favs);
-            setLoading(false);
-          }
-        });
+          setArticles(favs);
+          setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
+          setLoading(false);
+        }).catch(() => setLoading(false));
       }
     } else if (searchTerm) {
+      // Ricerca Libera
       fetchNews(searchTerm, searchTerm, false);
     } else if (activeCategoryId) {
+      // Categoria standard
       const cat = categories.find(c => c.id === activeCategoryId);
       if (cat) fetchNews(cat.value, cat.label, false);
     }
@@ -189,24 +140,19 @@ export const useNewsApp = () => {
     favoriteArticleIds,
     notification,
     setActiveCategoryId: (id: string) => {
-      setSearchTerm(''); 
-      setShowFavoritesOnly(false);
+      setSearchTerm(''); // Pulisce la ricerca se selezioni una categoria
       setActiveCategoryId(id);
     },
     handleSearch: (term: string) => {
-      const clean = term?.trim();
-      if (!clean) return;
-      setActiveCategoryId(''); 
+      if (!term.trim()) return;
       setShowFavoritesOnly(false);
-      setSearchTerm(clean);
+      setActiveCategoryId('');
+      setSearchTerm(term.trim());
     },
     setSelectedArticle,
     setShowLoginModal,
     setShowFavoritesOnly: (val: boolean) => {
-        if (val) {
-          setSearchTerm('');
-          setActiveCategoryId('');
-        }
+        if (val) setSearchTerm('');
         setShowFavoritesOnly(val);
     },
     handleLogout: () => {
@@ -216,27 +162,17 @@ export const useNewsApp = () => {
     },
     handleAddCategory: async (label: string) => {
       if (!currentUser) return setShowLoginModal(true);
-      
-      // Controllo duplicati case-insensitive
-      const exists = categories.some(c => c.label.toLowerCase() === label.toLowerCase().trim());
-      if (exists) {
-        setNotification(`La categoria "${label}" esiste già!`);
-        setTimeout(() => setNotification(null), 3000);
-        return;
-      }
-
       const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
       if (cat) {
         setCategories(prev => [...prev, cat]);
+        setSearchTerm('');
         setActiveCategoryId(cat.id);
-        setNotification(`Categoria "${label}" aggiunta con successo!`);
-        setTimeout(() => setNotification(null), 3000);
       }
     },
     loadNews: () => {
-      resetQuotaBlock();
-      if (searchTerm) fetchNews(searchTerm, searchTerm, true);
-      else {
+      if (searchTerm) {
+        fetchNews(searchTerm, searchTerm, true);
+      } else {
         const cat = categories.find(c => c.id === activeCategoryId);
         if (cat) fetchNews(cat.value, cat.label, true);
       }
@@ -252,9 +188,13 @@ export const useNewsApp = () => {
         id = saved[0]?.id;
       }
       if (!id) return;
+
       const isFav = favoriteArticleIds.has(id);
       if (isFav) {
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
+        if (showFavoritesOnly) {
+          setArticles(prev => prev.filter(a => a.id !== id));
+        }
         await db.removeFavorite(id, currentUser.id);
       } else {
         setFavoriteArticleIds(prev => new Set(prev).add(id!));
