@@ -55,6 +55,9 @@ export interface Deed {
   createdAt?: string;
 }
 
+// Tipo Tema
+export type Theme = 'sunshine' | 'evening' | 'accessible';
+
 // COSTANTI - Categorie richieste aggiornate
 export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'tech', label: 'Tecnologia', value: 'tecnologia digitale, intelligenza artificiale, robotica, spazio, startup tech' },
