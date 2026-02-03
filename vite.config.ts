@@ -7,10 +7,16 @@ export default defineConfig(({ mode }) => {
     // Carichiamo le env dal sistema (Vercel) o dal file .env
     const env = loadEnv(mode, process.cwd(), '');
     
-    // Cerchiamo la chiave in tutti i possibili nomi comuni
-    const apiKey = env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || env.API_KEY || '';
+    // Cerchiamo la chiave Gemini in tutti i possibili nomi comuni
+    const geminiKey = env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || env.API_KEY || '';
+    
+    // Supabase Keys
+    const supabaseUrl = env.VITE_SUPABASE_URL || '';
+    const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
 
-    console.log(`[VITE-CONFIG] 🔑 Chiave API configurata: ${apiKey ? 'SI (Presente)' : 'NO (Mancante!)'}`);
+    console.log(`[VITE-BUILD] 🛠️ Mode: ${mode}`);
+    console.log(`[VITE-BUILD] 🔑 Gemini Key: ${geminiKey ? 'Presente' : 'MANCANTE'}`);
+    console.log(`[VITE-BUILD] 🛰️ Supabase URL: ${supabaseUrl ? 'Presente' : 'MANCANTE'}`);
 
     return {
       server: {
@@ -20,10 +26,8 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       define: {
         // Inietta la chiave nel codice client come process.env.API_KEY (richiesto dal SDK Gemini)
-        'process.env.API_KEY': JSON.stringify(apiKey),
-        'process.env.GEMINI_API_KEY': JSON.stringify(apiKey),
-        // Fallback per Vite standard
-        'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(apiKey)
+        'process.env.API_KEY': JSON.stringify(geminiKey),
+        'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
       },
       resolve: {
         alias: {
@@ -32,7 +36,14 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'dist',
-        sourcemap: false
+        sourcemap: false,
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              vendor: ['react', 'react-dom', '@supabase/supabase-js', '@google/genai'],
+            },
+          },
+        },
       }
     };
 });
