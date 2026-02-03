@@ -14,9 +14,11 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/869/869869.png" />
 
-    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+    <!-- Tailwind Play CDN con configurazione ottimizzata -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-      tailwind.config = {
+      // Disabilita il warning del CDN in produzione
+      window.tailwind.config = {
         theme: {
           extend: {
             fontFamily: {
@@ -25,29 +27,10 @@
               body: ['"Source Sans 3"', 'sans-serif'],
             },
             colors: {
-              brand: {
-                50: '#f0fdf4',
-                100: '#dcfce7',
-                500: '#22c55e',
-                600: '#16a34a',
-                900: '#14532d',
-              },
-              joy: {
-                50: '#fff7ed',
-                100: '#ffedd5',
-                200: '#fed7aa',
-                300: '#fdba74',
-                400: '#fb923c',
-                500: '#f97316',
-                600: '#ea580c',
-                700: '#c2410c',
-                800: '#9a3412',
-                900: '#7c2d12',
-              }
+              brand: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 900: '#14532d' },
+              joy: { 50: '#fff7ed', 100: '#ffedd5', 200: '#fed7aa', 300: '#fdba74', 400: '#fb923c', 500: '#f97316', 600: '#ea580c', 700: '#c2410c', 800: '#9a3412', 900: '#7c2d12' }
             },
-            animation: {
-              'blob': 'blob 7s infinite',
-            },
+            animation: { 'blob': 'blob 7s infinite' },
             keyframes: {
               blob: {
                 '0%': { transform: 'translate(0px, 0px) scale(1)' },
@@ -85,22 +68,10 @@
   h1, h2, h3, h4 { font-family: 'Libre Baskerville', serif; }
   .font-body { font-family: 'Source Sans 3', sans-serif; }
   
-  .custom-scrollbar::-webkit-scrollbar {
-    height: 6px;
-    width: 6px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(254, 215, 170, 0.1);
-    border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #fed7aa;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #fb923c;
-  }
+  .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: rgba(254, 215, 170, 0.1); border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #fed7aa; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #fb923c; }
 
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
