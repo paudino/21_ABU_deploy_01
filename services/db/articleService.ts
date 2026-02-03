@@ -7,26 +7,24 @@ export const cleanupOldArticles = async (): Promise<void> => {
 };
 
 /**
- * Helper per eseguire una promessa con un timeout.
- */
-const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
-    return Promise.race([
-        promise,
-        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))
-    ]);
-};
-
-/**
- * Recupera articoli dalla cache filtrando per termine e opzionalmente per freschezza.
+ * Recupera articoli dalla cache con un timeout generoso per il cold start.
  */
 export const getCachedArticles = async (queryTerm: string, maxAgeMinutes: number = 0): Promise<Article[]> => {
     const cleanTerm = (queryTerm || '').trim().replace(/['"()]/g, '');
     if (!cleanTerm || cleanTerm.length < 2) return [];
 
     const searchTerm = `%${cleanTerm}%`;
-    console.log(`[DB-ARTICLES] 🔍 Ricerca cache per: "${searchTerm}"`);
+    console.log(`[DB-ARTICLES] 🔍 Ricerca cache per: "${searchTerm}"...`);
 
-    const query = (async () => {
+    // Aumentiamo il timeout a 10 secondi per il "risveglio" di Supabase su Vercel
+    const timeoutPromise = new Promise<Article[]>((resolve) => 
+        setTimeout(() => {
+            console.warn(`[DB-ARTICLES] ⏳ Timeout DB superato per: ${searchTerm}`);
+            resolve([]);
+        }, 10000)
+    );
+
+    const queryPromise = (async (): Promise<Article[]> => {
         try {
             let q = supabase
               .from('articles')
@@ -40,14 +38,17 @@ export const getCachedArticles = async (queryTerm: string, maxAgeMinutes: number
 
             const { data, error } = await q.order('created_at', { ascending: false }).limit(50);
             if (error) throw error;
-            return mapArticles(data);
+            
+            const results = mapArticles(data);
+            console.log(`[DB-ARTICLES] 📥 Trovati ${results.length} articoli in cache.`);
+            return results;
         } catch (e) {
+            console.error("[DB-ARTICLES] ❌ Errore query:", e);
             return [];
         }
     })();
 
-    // Se il DB non risponde in 3 secondi, restituiamo array vuoto per forzare l'uso dell'AI
-    return withTimeout(query, 3000, []);
+    return Promise.race([queryPromise, timeoutPromise]);
 };
 
 const mapArticles = (data: any[] | null): Article[] => {
@@ -90,7 +91,6 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
         };
 
         try {
-            // Upsert senza timeout (può andare lento in background, non blocca l'UI)
             const { data } = await supabase
                 .from('articles')
                 .upsert(row, { onConflict: 'url' })
