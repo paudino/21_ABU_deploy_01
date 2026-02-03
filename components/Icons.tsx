@@ -13,6 +13,35 @@ export const IconHeart = ({ className, filled }: { className?: string, filled?: 
   </svg>
 );
 
+export const IconSun = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+  </svg>
+);
+
+export const IconMoon = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+  </svg>
+);
+
+export const IconContrast = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="12" r="10"/><path d="M12 18a6 6 0 0 0 0-12v12z"/>
+  </svg>
+);
+
+export const IconType = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>
+  </svg>
+);
+
+export const IconSettings = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+);
+
 export const IconMessage = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -45,7 +74,7 @@ export const IconFacebook = ({ className }: { className?: string }) => (
 
 export const IconTelegram = ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className={className}>
-        <path d="M11.944 0C5.346 0 0 5.346 0 11.944c0 6.598 5.346 11.944 11.944 11.944 6.598 0 11.944-5.346 11.944-11.944C23.888 5.346 18.542 0 11.944 0zm5.206 8.19c-.163 1.715-.873 5.9-.1.233.1.233.194.263.24.263.053 0 .107-.013.155-.045.163-.11.246-.234.246-.372 0-.016-.004-.031-.006-.047l-.503-2.656c-.013-.075-.062-.138-.13-.171a.208.208 0 0 0-.203.011c-.007.005-.621.42-1.778 1.2l-2.435 1.643a.214.214 0 0 1-.227.012l-1.997-1.14c-.163-.093-.305-.16-.43-.21-.125-.05-.24-.09-.34-.12-.11-.03-.21-.06-.3-.09-.09-.03-.17-.06-.24-.09-.07-.03-.13-.06-.18-.09-.05-.03-.09-.06-.12-.09-.03-.03-.05-.06-.06-.09-.01-.03-.01-.06-.01-.09 0-.03.01-.06.03-.09.02-.03.05-.06.09-.09l.34-.23c.12-.08.26-.18.42-.3s.34-.25.54-.39c.2-.14.42-.3.66-.48.24-.18.5-.38.78-.6s.58-.45.9-.69c.32-.24.66-.5.1.02.44-.33.91-.68 1.41-1.05.07-.05.15-.08.24-.08.09 0 .17.03.24.08.07.05.12.12.15.2z"/>
+        <path d="M11.944 0C5.346 0 0 5.346 0 11.944c0 6.598 5.346 11.944 11.944 11.944 6.598 0 11.944-5.346 11.944-11.944C23.888 5.346 18.542 0 11.944 0zm5.206 8.19c-.163 1.715-.873 5.9-.1.233.1.233.194.263.24.263.053 0 .107-.013.155-.045.163-.11.246-.234.246-.372 0-.016-.004-.031-.006-.047l-.503-2.656c-.013-.075-.062-.138-.13-.171a.208.208 0 0 0-.203.011c-.007.005-.621.42-1.778 1.2l-2.435 1.643a.214.214 0 0 1-.227.012l-1.997-1.14c-.163-.093-.305-.16-.43-.21-.125-.05-.24-.09-.34-.12-.11-.03-.21-.09-.3-.09-.09-.03-.17-.06-.24-.09-.07-.03-.13-.06-.18-.09-.05-.03-.09-.06-.12-.09-.03-.03-.05-.06-.06-.09-.01-.03-.01-.06-.01-.09 0-.03.01-.06.03-.09.02-.03.05-.06.09-.09l.34-.23c.12-.08.26-.18.42-.3s.34-.25.54-.39c.2-.14.42-.3.66-.48.24-.18.5-.38.78-.6s.58-.45.9-.69c.32-.24.66-.5.1.02.44-.33.91-.68 1.41-1.05.07-.05.15-.08.24-.08.09 0 .17.03.24.08.07.05.12.12.15.2z"/>
     </svg>
 );
 
