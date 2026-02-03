@@ -1,7 +1,6 @@
 
-// Fix: React must be imported to use JSX and React.FC
 import React, { useEffect } from 'react';
-import { Article, User } from '../types';
+import { Article, User, Theme } from '../types';
 import { IconHeart, IconRefresh, IconMicrophoneOn, IconMicOff, IconX, IconThumbUp, IconThumbDown, IconShare } from './Icons';
 import { generateArticleImage } from '../services/geminiService';
 import { db } from '../services/dbService';
@@ -14,6 +13,7 @@ interface ArticleListProps {
   showFavoritesOnly: boolean;
   favoriteIds: Set<string>; 
   currentUser?: User | null; 
+  theme?: Theme;
   onArticleClick: (article: Article) => void;
   onRefresh: () => void;
   onImageGenerated?: (url: string, img: string) => void;
@@ -40,6 +40,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   showFavoritesOnly,
   favoriteIds,
   currentUser,
+  theme = 'sunshine',
   onArticleClick,
   onRefresh,
   onImageGenerated,
@@ -79,21 +80,25 @@ export const ArticleList: React.FC<ArticleListProps> = ({
 
   const showSkeletons = loading && articles.length === 0;
 
+  const isAccessible = theme === 'accessible';
+
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[60vh]">
         
-      <div className="flex justify-between items-center mb-8 bg-white/60 backdrop-blur-sm p-4 rounded-2xl shadow-sm border border-white/50">
+      <div className={`flex justify-between items-center mb-8 backdrop-blur-sm p-4 rounded-2xl shadow-sm border ${
+        isAccessible ? 'bg-black border-yellow-400 text-white' : 'bg-white/60 border-white/50'
+      }`}>
         <div>
            {showFavoritesOnly ? (
                <div className="flex items-center gap-3">
-                   <h2 className="text-2xl md:text-3xl font-display font-serif font-bold text-slate-800 tracking-tight">
+                   <h2 className="text-2xl md:text-3xl font-display font-serif font-bold tracking-tight">
                       <span className="text-red-500 mr-2">♥</span>
                       I tuoi preferiti
                    </h2>
                    {onCloseFavorites && (
                        <button 
                          onClick={onCloseFavorites}
-                         className="bg-slate-100 hover:bg-slate-200 text-slate-500 p-2 rounded-full transition"
+                         className={`${isAccessible ? 'bg-yellow-400 text-black' : 'bg-slate-100 text-slate-500'} hover:bg-slate-200 p-2 rounded-full transition`}
                          title="Torna alle notizie"
                        >
                            <IconX className="w-5 h-5" />
@@ -101,12 +106,12 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                    )}
                </div>
            ) : (
-               <h2 className="text-2xl md:text-3xl font-display font-serif font-bold text-slate-800 tracking-tight">
-                  <span className="text-joy-500 mr-2">☀</span>
+               <h2 className="text-2xl md:text-3xl font-display font-serif font-bold tracking-tight">
+                  <span className={`${isAccessible ? 'text-yellow-400' : 'text-joy-500'} mr-2`}>☀</span>
                   {activeCategoryLabel || 'Notizie'}
                </h2>
            )}
-           <p className="text-sm text-slate-500 mt-1 font-body font-sans italic">
+           <p className={`text-sm mt-1 font-body font-sans italic ${isAccessible ? 'text-yellow-100' : 'text-slate-500'}`}>
               {showFavoritesOnly ? 'La tua collezione personale di positività.' : 'Solo buone notizie, selezionate per te.'}
            </p>
         </div>
@@ -116,7 +121,11 @@ export const ArticleList: React.FC<ArticleListProps> = ({
             <button 
                 onClick={onRefresh}
                 disabled={loading}
-                className="flex items-center gap-2 text-joy-700 hover:text-white disabled:opacity-50 font-bold bg-white border border-joy-200 px-5 py-2.5 rounded-xl hover:bg-joy-500 hover:border-joy-500 hover:shadow-lg transition-all duration-300 group"
+                className={`flex items-center gap-2 disabled:opacity-50 font-bold border px-5 py-2.5 rounded-xl transition-all duration-300 group ${
+                    isAccessible 
+                    ? 'bg-yellow-400 border-yellow-400 text-black hover:bg-white' 
+                    : 'text-joy-700 bg-white border-joy-200 hover:bg-joy-500 hover:text-white hover:border-joy-500 hover:shadow-lg'
+                }`}
             >
                 <div className={`transition-transform duration-700 ${loading ? 'animate-spin' : 'group-hover:rotate-180'}`}>
                     <IconRefresh />
@@ -128,7 +137,9 @@ export const ArticleList: React.FC<ArticleListProps> = ({
       </div>
 
       {notification && (
-          <div className="mb-8 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl flex items-center justify-center gap-2 animate-in slide-in-from-top-4 fade-in">
+          <div className={`mb-8 p-4 border rounded-xl flex items-center justify-center gap-2 animate-in slide-in-from-top-4 fade-in ${
+              isAccessible ? 'bg-black border-yellow-400 text-yellow-400' : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                   <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
               </svg>
@@ -139,7 +150,7 @@ export const ArticleList: React.FC<ArticleListProps> = ({
       {showSkeletons ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="bg-white/80 rounded-2xl overflow-hidden shadow-sm border border-white h-96 animate-pulse">
+            <div key={i} className={`rounded-2xl overflow-hidden shadow-sm border h-96 animate-pulse ${isAccessible ? 'bg-slate-900 border-yellow-400' : 'bg-white/80 border-white'}`}>
               <div className="h-48 bg-slate-200/50"></div>
               <div className="p-6 space-y-3">
                 <div className="h-6 bg-slate-200/50 rounded w-3/4"></div>
@@ -152,18 +163,20 @@ export const ArticleList: React.FC<ArticleListProps> = ({
       ) : (
         <>
           {!loading && articles.length === 0 ? (
-              <div className="text-center py-24 bg-white/50 backdrop-blur-sm rounded-3xl border border-dashed border-slate-300/50 mx-auto max-w-2xl animate-in fade-in zoom-in-95 duration-500">
+              <div className={`text-center py-24 backdrop-blur-sm rounded-3xl border border-dashed mx-auto max-w-2xl animate-in fade-in zoom-in-95 duration-500 ${
+                  isAccessible ? 'bg-black border-yellow-400 text-yellow-400' : 'bg-white/50 border-slate-300/50'
+              }`}>
                 <div className="text-6xl mb-4">🌤️</div>
-                <h3 className="text-xl font-display font-serif font-bold text-slate-700 mb-2">
+                <h3 className="text-xl font-display font-serif font-bold mb-2">
                     {showFavoritesOnly ? "Nessun preferito ancora" : "In attesa di buone nuove"}
                 </h3>
-                <p className="text-slate-500 text-lg mb-6 font-body font-sans px-4">
+                <p className={`text-lg mb-6 font-body font-sans px-4 ${isAccessible ? 'text-white' : 'text-slate-500'}`}>
                   {showFavoritesOnly 
                     ? "Salva le notizie che ti fanno sorridere per ritrovarle qui." 
                     : "Stiamo preparando nuove storie positive per te. Prova ad aggiornare tra un istante!"}
                 </p>
                 {showFavoritesOnly && onCloseFavorites && (
-                  <button onClick={onCloseFavorites} className="text-joy-600 hover:text-joy-700 font-bold hover:underline font-sans">
+                  <button onClick={onCloseFavorites} className={`${isAccessible ? 'text-yellow-400 font-black' : 'text-joy-600'} hover:underline font-sans`}>
                     Torna alle notizie
                   </button>
                 )}
@@ -177,13 +190,19 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                   <div 
                     key={`${article.url}-${idx}`} 
                     onClick={() => onArticleClick(article)}
-                    className={`group bg-gradient-to-br from-white via-white/95 to-indigo-50/20 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:shadow-joy-500/10 hover:-translate-y-2 transition-all duration-500 cursor-pointer flex flex-col h-full 
-                      ${article.isNew 
+                    className={`group rounded-2xl shadow-sm transition-all duration-500 cursor-pointer flex flex-col h-full overflow-hidden
+                      ${isAccessible 
+                        ? 'bg-black border-2 border-yellow-400 hover:bg-slate-900' 
+                        : 'bg-white border border-white/80 hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:shadow-joy-500/10 hover:-translate-y-2'
+                      }
+                      ${article.isNew && !isAccessible 
                           ? 'border-2 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.25)] relative z-10' 
-                          : 'border border-white/80'
-                      }`}
+                          : ''
+                      }
+                      ${article.isNew && isAccessible ? 'border-dashed border-4' : ''}
+                    `}
                   >
-                    <div className="h-48 bg-slate-100 rounded-t-2xl overflow-hidden relative">
+                    <div className="h-48 bg-slate-100 overflow-hidden relative">
                         <img 
                           src={article.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} 
                           alt={article.title} 
@@ -191,15 +210,19 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                           loading="lazy"
                         />
                         
-                        <div className="absolute top-3 right-3 bg-white/95 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-brand-600 shadow-md flex items-center gap-1 font-sans">
-                           <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span>
+                        <div className={`absolute top-3 right-3 backdrop-blur px-3 py-1 rounded-full text-xs font-bold shadow-md flex items-center gap-1 font-sans ${
+                            isAccessible ? 'bg-yellow-400 text-black' : 'bg-white/95 text-brand-600'
+                        }`}>
+                           <span className={`w-2 h-2 rounded-full animate-pulse ${isAccessible ? 'bg-black' : 'bg-brand-500'}`}></span>
                           {(article.sentimentScore * 100).toFixed(0)}% Positivo
                         </div>
 
                         {article.isNew && (
                           <div className="absolute top-0 left-0 z-20">
-                              <div className="bg-gradient-to-br from-emerald-500 to-green-600 text-white pl-4 pr-6 py-2 rounded-br-3xl shadow-lg shadow-emerald-900/20 flex items-center gap-2">
-                                  <span className="font-bold tracking-wide text-xs font-sans">NUOVA</span>
+                              <div className={`pl-4 pr-6 py-2 rounded-br-3xl shadow-lg flex items-center gap-2 ${
+                                  isAccessible ? 'bg-yellow-400 text-black' : 'bg-gradient-to-br from-emerald-500 to-green-600 text-white'
+                              }`}>
+                                  <span className="font-bold tracking-wide text-xs font-sans uppercase">NUOVA</span>
                               </div>
                           </div>
                         )}
@@ -209,22 +232,31 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                         </div>
                     </div>
                     
-                    <div className="p-6 flex-1 flex flex-col rounded-b-2xl">
-                      <div className="flex justify-between items-center text-xs text-slate-400 mb-3 uppercase tracking-wider font-semibold font-sans">
-                        <span className="bg-slate-100 px-2 py-1 rounded-md">{article.source}</span>
-                        <span>{formatDate(article.date)}</span>
+                    <div className="p-6 flex-1 flex flex-col">
+                      <div className="flex justify-between items-center text-xs mb-3 uppercase tracking-wider font-semibold font-sans">
+                        <span className={`${isAccessible ? 'bg-yellow-400 text-black' : 'bg-slate-100 text-slate-400'} px-2 py-1 rounded-md`}>{article.source}</span>
+                        <span className={isAccessible ? 'text-yellow-400' : 'text-slate-400'}>{formatDate(article.date)}</span>
                       </div>
-                      <h3 className="text-xl font-display font-serif font-bold text-slate-900 mb-3 leading-snug group-hover:text-joy-600 transition-colors">
+                      <h3 className={`text-xl font-display font-serif font-bold mb-3 leading-snug transition-colors ${
+                          isAccessible ? 'text-yellow-400 group-hover:text-white' : 'text-slate-900 group-hover:text-joy-600'
+                      }`}>
                         {article.title}
                       </h3>
-                      <p className="text-slate-600 line-clamp-3 mb-5 flex-1 text-sm leading-relaxed font-body font-sans">
+                      <p className={`line-clamp-3 mb-5 flex-1 text-sm leading-relaxed font-body font-sans ${
+                          isAccessible ? 'text-white' : 'text-slate-600'
+                      }`}>
                         {article.summary}
                       </p>
                       
-                      <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-400 font-sans">
+                      <div className={`pt-4 border-t flex items-center justify-between text-sm font-sans ${
+                          isAccessible ? 'border-yellow-400 text-yellow-400' : 'border-slate-100 text-slate-400'
+                      }`}>
                           <div className="flex items-center gap-3">
                                <Tooltip content={currentUser ? "Ascolta l'articolo (AI)" : "Accedi per abilitare l'audio"} position="top">
-                                    <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full border ${currentUser ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                                    <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full border ${
+                                        isAccessible ? 'bg-yellow-400 text-black border-yellow-400' : 
+                                        currentUser ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-400'
+                                    }`}>
                                        {currentUser ? <IconMicrophoneOn className="w-3.5 h-3.5" /> : <IconMicOff className="w-3.5 h-3.5" />}
                                     </div>
                                </Tooltip>
@@ -235,13 +267,16 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                                           e.stopPropagation();
                                           if (onShareClick) onShareClick(article);
                                       }}
-                                      className={`p-2 rounded-full transition-all duration-300 ${currentUser ? 'text-indigo-600 hover:bg-indigo-50' : 'text-slate-300'}`}
+                                      className={`p-2 rounded-full transition-all duration-300 ${
+                                          isAccessible ? 'text-yellow-400 hover:bg-yellow-400 hover:text-black' :
+                                          currentUser ? 'text-indigo-600 hover:bg-indigo-50' : 'text-slate-300'
+                                      }`}
                                     >
                                         <IconShare className="w-4 h-4" />
                                     </button>
                                </Tooltip>
                                
-                               <div className="flex items-center gap-3 text-slate-400 select-none ml-1">
+                               <div className="flex items-center gap-3 select-none ml-1">
                                    <div className="flex items-center gap-0.5" title="Like">
                                       <IconThumbUp className="w-3.5 h-3.5" />
                                       <span className="text-[10px] font-bold">{article.likeCount || 0}</span>
@@ -262,9 +297,11 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                                  }}
                                  className={`
                                    p-2 rounded-full transition-all duration-300 transform active:scale-90
-                                   ${isFav 
+                                   ${isAccessible && isFav ? 'bg-yellow-400 text-black' : ''}
+                                   ${isAccessible && !isFav ? 'text-yellow-400 border border-yellow-400' : ''}
+                                   ${!isAccessible && isFav 
                                       ? 'text-red-500 bg-red-50 hover:bg-red-100 border border-red-100' 
-                                      : 'text-slate-400 hover:text-red-500 hover:bg-slate-50'
+                                      : !isAccessible ? 'text-slate-400 hover:text-red-500 hover:bg-slate-50' : ''
                                    }
                                  `}
                                >
