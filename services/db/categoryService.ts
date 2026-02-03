@@ -6,12 +6,11 @@ import { Category, DEFAULT_CATEGORIES } from '../../types';
  * Recupera le categorie con un meccanismo di protezione per evitare blocchi infiniti.
  */
 export const getCategories = async (userId?: string): Promise<Category[]> => {
-    console.log(`[DB-CATS] 📡 Avvio query categorie. UserID: ${userId || 'Pubblico'}`);
+    console.log(`[DB-CATS] 📡 Richiesta categorie... (UserID: ${userId || 'Pubblico'})`);
     
-    // Timeout di sicurezza: se Supabase non risponde entro 4 secondi, restituiamo array vuoto
-    // permettendo all'app di usare i default.
+    // Su Vercel/Supabase Free, il risveglio può essere molto lento (fino a 10s)
     const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout DB Categorie")), 4000)
+        setTimeout(() => reject(new Error("Database in fase di risveglio o timeout")), 8000)
     );
 
     try {
@@ -35,10 +34,10 @@ export const getCategories = async (userId?: string): Promise<Category[]> => {
         const data = await Promise.race([queryPromise, timeoutPromise]);
         
         if (!data) return [];
-        console.log(`[DB-CATS] ✅ Query completata. Trovate ${data.length} categorie.`);
+        console.log(`[DB-CATS] ✅ Categorie caricate correttamente dal DB.`);
         return data as Category[];
     } catch (e: any) {
-        console.warn("[DB-CATS] ⚠️ Recupero categorie fallito o timeout:", e.message);
+        console.warn("[DB-CATS] ⚠️ DB non ha risposto in tempo, uso i default:", e.message);
         return [];
     }
 };
