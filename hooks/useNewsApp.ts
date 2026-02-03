@@ -17,10 +17,13 @@ export const useNewsApp = () => {
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Nuovo stato per la ricerca libera
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // 1. GESTIONE AUTENTICAZIONE
+  // Calcolo dell'articolo successivo per il caricamento predittivo
+  const nextArticle = selectedArticle 
+    ? articles[articles.findIndex(a => a.url === selectedArticle.url) + 1] || null 
+    : null;
+
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
@@ -42,7 +45,6 @@ export const useNewsApp = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. CARICAMENTO CATEGORIE
   useEffect(() => {
     const loadCategories = async () => {
       try {
@@ -60,7 +62,6 @@ export const useNewsApp = () => {
     loadCategories();
   }, [currentUser?.id]);
 
-  // 3. IMPOSTAZIONE CATEGORIA INIZIALE
   useEffect(() => {
     if (categories.length > 0 && !searchTerm && !showFavoritesOnly) {
       const isValid = categories.some(c => c.id === activeCategoryId);
@@ -70,7 +71,6 @@ export const useNewsApp = () => {
     }
   }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
 
-  // 4. FUNZIONE CORE CARICAMENTO NOTIZIE
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
     setLoading(true);
     setNotification(null);
@@ -84,7 +84,6 @@ export const useNewsApp = () => {
         }
       }
 
-      // Se non c'è cache o forziamo l'AI
       const aiArticles = await fetchPositiveNews(query, label);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
@@ -106,7 +105,6 @@ export const useNewsApp = () => {
     }
   }, []);
 
-  // 5. EFFETTO REATTIVO CARICAMENTO
   useEffect(() => {
     if (showFavoritesOnly) {
       if (currentUser) {
@@ -118,10 +116,8 @@ export const useNewsApp = () => {
         }).catch(() => setLoading(false));
       }
     } else if (searchTerm) {
-      // Ricerca Libera
       fetchNews(searchTerm, searchTerm, false);
     } else if (activeCategoryId) {
-      // Categoria standard
       const cat = categories.find(c => c.id === activeCategoryId);
       if (cat) fetchNews(cat.value, cat.label, false);
     }
@@ -131,6 +127,7 @@ export const useNewsApp = () => {
     categories,
     activeCategoryId,
     articles,
+    nextArticle, // Esponiamo l'articolo successivo
     activeCategoryLabel: searchTerm ? `Ricerca: ${searchTerm}` : categories.find(c => c.id === activeCategoryId)?.label,
     loading,
     selectedArticle,
@@ -140,7 +137,7 @@ export const useNewsApp = () => {
     favoriteArticleIds,
     notification,
     setActiveCategoryId: (id: string) => {
-      setSearchTerm(''); // Pulisce la ricerca se selezioni una categoria
+      setSearchTerm(''); 
       setActiveCategoryId(id);
     },
     handleSearch: (term: string) => {
