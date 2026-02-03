@@ -1,6 +1,6 @@
 
 // Fix: React must be imported to use JSX and React.FC
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { Article, User } from '../types';
 import { IconHeart, IconRefresh, IconMicrophoneOn, IconMicOff, IconX, IconThumbUp, IconThumbDown, IconShare } from './Icons';
 import { generateArticleImage } from '../services/geminiService';
@@ -50,23 +50,12 @@ export const ArticleList: React.FC<ArticleListProps> = ({
   onShareClick
 }) => {
 
-  const generatingUrlsRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
-    if (loading || showFavoritesOnly || articles.length === 0) {
-      generatingUrlsRef.current.clear();
-      return;
-    }
+    if (loading || showFavoritesOnly || articles.length === 0) return;
 
-    // Generazione immagini intelligente
     const generateImages = async () => {
-        // Prendiamo solo articoli che non hanno immagine e non sono già in fase di generazione
-        const articlesNeedingImage = articles.filter(a => !a.imageUrl && !generatingUrlsRef.current.has(a.url));
-        
-        if (articlesNeedingImage.length === 0) return;
-
-        articlesNeedingImage.forEach(async (article) => {
-            generatingUrlsRef.current.add(article.url);
+        const articlesNeedingImage = articles.filter(a => !a.imageUrl);
+        for (const article of articlesNeedingImage) {
             try {
                 const newImg = await generateArticleImage(article.title);
                 if (newImg) {
@@ -76,14 +65,15 @@ export const ArticleList: React.FC<ArticleListProps> = ({
                     }
                 }
             } catch (e) {
-                console.error("Errore generazione immagine:", e);
-                // In caso di errore permettiamo un nuovo tentativo in futuro rimuovendo dalla ref
-                generatingUrlsRef.current.delete(article.url);
+                console.error("Errore generazione immagine background:", e);
             }
-        });
+        }
     };
 
-    const timeout = setTimeout(generateImages, 2000);
+    const timeout = setTimeout(() => {
+        generateImages();
+    }, 2000);
+
     return () => clearTimeout(timeout);
   }, [articles, loading, showFavoritesOnly, onImageGenerated]);
 
