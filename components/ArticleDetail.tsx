@@ -1,13 +1,15 @@
-// Fix: React is the default export from the 'react' package
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Article, User, Comment } from '../types';
 import { db } from '../services/dbService';
-import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck, IconShare } from './Icons';
+import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck, IconShare, IconRefresh } from './Icons';
 import { AudioPlayer } from './AudioPlayer';
 import { Tooltip } from './Tooltip';
+import { generateArticleImage } from '../services/geminiService';
 
 interface ArticleDetailProps {
   article: Article;
+  nextArticle?: Article | null; // Supporto per il caricamento predittivo
   currentUser: User | null;
   isFavorite: boolean; 
   onClose: () => void;
@@ -25,7 +27,7 @@ const formatDate = (dateString: string) => {
 };
 
 export const ArticleDetail: React.FC<ArticleDetailProps> = ({ 
-  article, currentUser, isFavorite, onClose, onLoginRequest, onToggleFavorite, onUpdate, onShareClick 
+  article, nextArticle, currentUser, isFavorite, onClose, onLoginRequest, onToggleFavorite, onUpdate, onShareClick 
 }) => {
   const [likeCount, setLikeCount] = useState(article.likeCount || 0);
   const [dislikeCount, setDislikeCount] = useState(article.dislikeCount || 0);
@@ -36,6 +38,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   const [loadingComments, setLoadingComments] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [isPredicting, setIsPredicting] = useState(false);
 
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
@@ -43,6 +46,32 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   useEffect(() => {
     articleIdRef.current = article.id;
   }, [article.id]);
+
+  // Caricamento Predittivo
+  useEffect(() => {
+    if (!nextArticle || isPredicting) return;
+
+    const runPrediction = async () => {
+      setIsPredicting(true);
+      console.log(`[PREDICTIVE] 🔮 Preparazione silente per il prossimo articolo: ${nextArticle.title}`);
+      
+      // 1. Pre-carica immagine se manca
+      if (!nextArticle.imageUrl) {
+        try {
+          const img = await generateArticleImage(nextArticle.title);
+          if (img) {
+            await db.updateArticleImage(nextArticle.url, img);
+            if (onUpdate) onUpdate({ ...nextArticle, imageUrl: img });
+          }
+        } catch (e) { console.warn("Prediction image error", e); }
+      }
+
+      setIsPredicting(false);
+    };
+
+    const timer = setTimeout(runPrediction, 3000); // Inizia dopo 3 secondi di lettura
+    return () => clearTimeout(timer);
+  }, [nextArticle, onUpdate]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -192,6 +221,12 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           <img src={article.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} className="w-full h-full object-cover" alt={article.title} />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-6 pt-24">
             <h1 className="text-2xl md:text-4xl font-bold text-white">{article.title}</h1>
+            {isPredicting && (
+               <div className="flex items-center gap-2 mt-2 opacity-50">
+                  <IconRefresh spin className="w-3 h-3 text-white" />
+                  <span className="text-[10px] text-white font-bold uppercase tracking-wider">L'AI sta preparando la prossima notizia...</span>
+               </div>
+            )}
           </div>
         </div>
 
@@ -202,7 +237,14 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
                <span>{formatDate(article.date)}</span>
             </div>
             
-            <AudioPlayer articleTitle={article.title} articleSummary={article.summary} articleUrl={article.url} initialAudioBase64={article.audioBase64} canPlay={!!currentUser} />
+            <AudioPlayer 
+              articleTitle={article.title} 
+              articleSummary={article.summary} 
+              articleUrl={article.url} 
+              initialAudioBase64={article.audioBase64} 
+              canPlay={!!currentUser} 
+              autoGenerate={true} // Caricamento predittivo audio attivato
+            />
 
             <p className="text-lg text-slate-700 leading-relaxed mb-6">{article.summary}</p>
             
@@ -235,7 +277,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               <div className="w-px h-8 bg-slate-200 mx-2"></div>
 
               <Tooltip content={currentUser ? (isFavorite ? "Rimuovi dai preferiti" : "Salva nei preferiti") : "Accedi per salvare"}>
-                  {/* Fix: changed onLoginClick to onLoginRequest to match the prop name */}
                   <button onClick={() => currentUser ? onToggleFavorite(article) : onLoginRequest()} className={`flex items-center space-x-2 px-4 py-2 rounded-full border ${isFavorite ? 'bg-amber-50 text-amber-500 border-amber-200' : 'bg-white text-slate-600 border-slate-200'}`}>
                       <IconHeart filled={isFavorite} />
                       <span>{isFavorite ? 'Salvato' : 'Salva'}</span>
