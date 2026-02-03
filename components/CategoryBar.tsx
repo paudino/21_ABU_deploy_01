@@ -62,7 +62,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
   }, [categories]);
 
   return (
-    <div className="sticky top-[108px] md:top-20 z-50 backdrop-blur-md bg-white/70 border-b border-white/50 py-3 shadow-sm transition-all duration-300">
+    <div className="sticky top-[108px] md:top-20 z-[40] backdrop-blur-md bg-white/70 border-b border-white/50 py-3 shadow-sm transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-3">
          
          <span className="text-xs font-bold text-joy-800 uppercase tracking-widest mr-2 hidden md:block opacity-70 flex-shrink-0">
