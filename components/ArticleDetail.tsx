@@ -5,11 +5,11 @@ import { db } from '../services/dbService';
 import { IconHeart, IconThumbUp, IconThumbDown, IconX, IconExternalLink, IconMessage, IconTrash, IconCheck, IconShare, IconRefresh } from './Icons';
 import { AudioPlayer } from './AudioPlayer';
 import { Tooltip } from './Tooltip';
-import { generateArticleImage } from '../services/geminiService';
+import { generateArticleImage, generateAudio } from '../services/geminiService';
 
 interface ArticleDetailProps {
   article: Article;
-  nextArticle?: Article | null; // Supporto per il caricamento predittivo
+  nextArticle?: Article | null; 
   currentUser: User | null;
   isFavorite: boolean; 
   onClose: () => void;
@@ -38,50 +38,21 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
   const [loadingComments, setLoadingComments] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
-  const [isPredicting, setIsPredicting] = useState(false);
+  const [predictionStatus, setPredictionStatus] = useState<string | null>(null);
 
   const articleIdRef = useRef<string | undefined>(article.id);
   const loadingRef = useRef(false);
 
   useEffect(() => {
     articleIdRef.current = article.id;
-  }, [article.id]);
+    if (article.id) loadInteractions(article.id);
+  }, [article.id, currentUser]);
 
-  // Caricamento Predittivo
-  useEffect(() => {
-    if (!nextArticle || isPredicting) return;
-
-    const runPrediction = async () => {
-      setIsPredicting(true);
-      console.log(`[PREDICTIVE] 🔮 Preparazione silente per il prossimo articolo: ${nextArticle.title}`);
-      
-      // 1. Pre-carica immagine se manca
-      if (!nextArticle.imageUrl) {
-        try {
-          const img = await generateArticleImage(nextArticle.title);
-          if (img) {
-            await db.updateArticleImage(nextArticle.url, img);
-            if (onUpdate) onUpdate({ ...nextArticle, imageUrl: img });
-          }
-        } catch (e) { console.warn("Prediction image error", e); }
-      }
-
-      setIsPredicting(false);
-    };
-
-    const timer = setTimeout(runPrediction, 3000); // Inizia dopo 3 secondi di lettura
-    return () => clearTimeout(timer);
-  }, [nextArticle, onUpdate]);
-
-  useEffect(() => {
-    const loadData = async () => {
-      let currentId = article.id; 
-      if (!currentId) return;
-      
+  const loadInteractions = async (artId: string) => {
       try {
         const [lCount, dCount] = await Promise.all([
-           db.getLikeCount(currentId),
-           db.getDislikeCount(currentId)
+           db.getLikeCount(artId),
+           db.getDislikeCount(artId)
         ]);
         
         setLikeCount(lCount);
@@ -89,19 +60,17 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
         
         if (currentUser) {
           const [liked, disliked] = await Promise.all([
-            db.hasUserLiked(currentId, currentUser.id),
-            db.hasUserDisliked(currentId, currentUser.id)
+            db.hasUserLiked(artId, currentUser.id),
+            db.hasUserDisliked(artId, currentUser.id)
           ]);
           setUserHasLiked(liked);
           setUserHasDisliked(disliked);
         }
-        loadComments(currentId);
+        loadComments(artId);
       } catch (error) {
         console.error("Errore caricamento interazioni:", error);
       }
-    };
-    loadData();
-  }, [article.id, currentUser]); 
+  };
 
   const loadComments = async (artId: string) => {
       setLoadingComments(true);
@@ -109,7 +78,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           const list = await db.getComments(artId);
           setComments(list);
       } catch (e) {
-          console.error("Errore loading commenti", e);
       } finally {
           setLoadingComments(false);
       }
@@ -122,10 +90,11 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           if (saved && saved.length > 0) {
               const newId = saved[0].id;
               articleIdRef.current = newId; 
+              if (onUpdate) onUpdate({ ...article, id: newId });
               return newId || null;
           }
       } catch (e) {
-          console.error("Errore salvataggio articolo:", e);
+          console.error("Errore salvataggio preventivo:", e);
       }
       return null;
   };
@@ -137,18 +106,20 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
 
       try {
           const targetId = await ensureArticleSaved();
-          if (!targetId) throw new Error("ID mancante");
+          if (!targetId) return;
 
           const isLiked = await db.toggleLike(targetId, currentUser.id);
-          const newLikeCount = await db.getLikeCount(targetId);
-          const newDislikeCount = await db.getDislikeCount(targetId);
+          const [nLike, nDislike] = await Promise.all([
+              db.getLikeCount(targetId),
+              db.getDislikeCount(targetId)
+          ]);
 
-          setLikeCount(newLikeCount);
-          setDislikeCount(newDislikeCount);
+          setLikeCount(nLike);
+          setDislikeCount(nDislike);
           setUserHasLiked(isLiked);
           if (isLiked) setUserHasDisliked(false);
 
-          if (onUpdate) onUpdate({ ...article, id: targetId, likeCount: newLikeCount, dislikeCount: newDislikeCount });
+          if (onUpdate) onUpdate({ ...article, id: targetId, likeCount: nLike, dislikeCount: nDislike });
       } catch (error) {
           console.error("Errore Like:", error);
       } finally {
@@ -163,18 +134,20 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
 
       try {
           const targetId = await ensureArticleSaved();
-          if (!targetId) throw new Error("ID mancante");
+          if (!targetId) return;
 
           const isDisliked = await db.toggleDislike(targetId, currentUser.id);
-          const newLikeCount = await db.getLikeCount(targetId);
-          const newDislikeCount = await db.getDislikeCount(targetId);
+          const [nLike, nDislike] = await Promise.all([
+            db.getLikeCount(targetId),
+            db.getDislikeCount(targetId)
+          ]);
 
-          setLikeCount(newLikeCount);
-          setDislikeCount(newDislikeCount);
+          setLikeCount(nLike);
+          setDislikeCount(nDislike);
           setUserHasDisliked(isDisliked);
           if (isDisliked) setUserHasLiked(false);
 
-          if (onUpdate) onUpdate({ ...article, id: targetId, likeCount: newLikeCount, dislikeCount: newDislikeCount });
+          if (onUpdate) onUpdate({ ...article, id: targetId, likeCount: nLike, dislikeCount: nDislike });
       } catch (error) {
           console.error("Errore Dislike:", error);
       } finally {
@@ -189,7 +162,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
           const targetId = await ensureArticleSaved();
           if (!targetId) return;
           const added = await db.addComment(targetId, currentUser, newComment.trim());
-          setComments([added, ...comments]);
+          setComments(prev => [added, ...prev]);
           setNewComment('');
       } catch (e) {
           console.error("Errore invio commento", e);
@@ -204,7 +177,6 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
         await db.deleteComment(commentId, currentUser.id);
         setComments(prev => prev.filter(c => c.id !== commentId));
     } catch (e) {
-        console.error("Errore cancellazione commento", e);
     } finally {
         setDeletingCommentId(null);
     }
@@ -220,13 +192,7 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
         <div className="relative h-64 md:h-96 w-full bg-slate-200">
           <img src={article.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(article.title)}/600/400`} className="w-full h-full object-cover" alt={article.title} />
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-6 pt-24">
-            <h1 className="text-2xl md:text-4xl font-bold text-white">{article.title}</h1>
-            {isPredicting && (
-               <div className="flex items-center gap-2 mt-2 opacity-50">
-                  <IconRefresh spin className="w-3 h-3 text-white" />
-                  <span className="text-[10px] text-white font-bold uppercase tracking-wider">L'AI sta preparando la prossima notizia...</span>
-               </div>
-            )}
+            <h1 className="text-xl md:text-4xl font-bold text-white leading-tight">{article.title}</h1>
           </div>
         </div>
 
@@ -243,10 +209,10 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               articleUrl={article.url} 
               initialAudioBase64={article.audioBase64} 
               canPlay={!!currentUser} 
-              autoGenerate={true} // Caricamento predittivo audio attivato
+              autoGenerate={true} 
             />
 
-            <p className="text-lg text-slate-700 leading-relaxed mb-6">{article.summary}</p>
+            <p className="text-lg text-slate-700 leading-relaxed mb-6 whitespace-pre-line">{article.summary}</p>
             
             <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
                 <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-joy-600 font-bold hover:text-joy-700 hover:underline transition-colors">
@@ -284,21 +250,21 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
               </Tooltip>
             </div>
 
-            <div>
+            <div className="mt-12">
                <h3 className="text-xl font-display font-bold text-slate-800 mb-6 flex items-center gap-2">
                    <IconMessage className="w-5 h-5 text-joy-500" />
-                   Commenti
+                   Commenti della community
                </h3>
                
                <div className="flex gap-4 mb-8">
-                    <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden">
-                        {currentUser ? <img src={currentUser.avatar} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-slate-100">?</div>}
+                    <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0 overflow-hidden shadow-sm">
+                        {currentUser ? <img src={currentUser.avatar} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-400 font-bold">?</div>}
                     </div>
                     <div className="flex-1">
-                        <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Un pensiero positivo..." className="w-full border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-joy-400 outline-none resize-y min-h-[80px]" />
-                        <div className="flex justify-end mt-2">
-                            <button onClick={handlePostComment} disabled={!newComment.trim() || submittingComment} className="bg-joy-500 text-white px-5 py-2 rounded-full font-bold text-sm hover:bg-joy-600 disabled:opacity-50 transition">
-                                {submittingComment ? 'Invio...' : 'Invia'}
+                        <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Condividi un pensiero positivo..." className="w-full border border-slate-200 rounded-2xl p-4 focus:ring-2 focus:ring-joy-400 outline-none resize-y min-h-[100px] bg-slate-50 focus:bg-white transition-all" />
+                        <div className="flex justify-end mt-3">
+                            <button onClick={handlePostComment} disabled={!newComment.trim() || submittingComment} className="bg-joy-500 text-white px-8 py-2.5 rounded-full font-bold text-sm hover:bg-joy-600 disabled:opacity-50 transition shadow-lg shadow-joy-500/20 active:scale-95">
+                                {submittingComment ? 'Invio...' : 'Pubblica'}
                             </button>
                         </div>
                     </div>
@@ -306,47 +272,35 @@ export const ArticleDetail: React.FC<ArticleDetailProps> = ({
 
                <div className="space-y-6">
                     {loadingComments ? (
-                        <p className="text-center text-slate-400 py-4 italic">Caricamento...</p> 
+                        <div className="space-y-4 py-4">
+                            {[1, 2].map(i => <div key={i} className="h-20 bg-slate-100 rounded-xl animate-pulse"></div>)}
+                        </div>
                     ) : comments.length === 0 ? (
-                        <p className="text-center text-slate-400 py-4 border border-dashed rounded-xl">Sii il primo!</p> 
+                        <div className="text-center py-12 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                            <p className="text-slate-400 text-sm">Nessun commento ancora.</p>
+                        </div>
                     ) : (
                         comments.map(comment => (
-                            <div key={comment.id} className="flex gap-4 animate-in fade-in">
-                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex-shrink-0 overflow-hidden border">
+                            <div key={comment.id} className="flex gap-4 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex-shrink-0 overflow-hidden border border-white shadow-sm">
                                     <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.userId}`} className="w-full h-full" />
                                 </div>
-                                <div className="flex-1 bg-white p-4 rounded-xl rounded-tl-none border border-slate-100 shadow-sm relative group">
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className="font-bold text-slate-800 text-sm">{comment.username}</span>
-                                        <span className="text-xs text-slate-400">{new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(new Date(comment.timestamp))}</span>
+                                <div className="flex-1 bg-white p-4 rounded-2xl rounded-tl-none border border-slate-100 shadow-sm relative group">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className="font-bold text-slate-800 text-sm tracking-tight">{comment.username}</span>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase">{new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' }).format(new Date(comment.timestamp))}</span>
                                     </div>
                                     <p className="text-slate-600 text-sm leading-relaxed">{comment.text}</p>
                                     
                                     {currentUser?.id === comment.userId && (
-                                        <div className="absolute bottom-3 right-3 flex items-center gap-1">
+                                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                                             {deletingCommentId === comment.id ? (
-                                                <div className="flex items-center gap-1 bg-white border shadow-sm rounded-full p-1 animate-in zoom-in">
-                                                    <button 
-                                                        onClick={() => performDeleteComment(comment.id)} 
-                                                        className="text-emerald-500 hover:bg-emerald-50 p-1 rounded-full transition"
-                                                    >
-                                                        <IconCheck className="w-4 h-4" />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => setDeletingCommentId(null)} 
-                                                        className="text-red-500 hover:bg-red-50 p-1 rounded-full transition"
-                                                    >
-                                                        <IconX className="w-4 h-4" />
-                                                    </button>
+                                                <div className="flex items-center gap-1 bg-white border shadow-lg rounded-full p-1">
+                                                    <button onClick={() => performDeleteComment(comment.id)} className="text-emerald-500 hover:bg-emerald-50 p-1.5 rounded-full transition"><IconCheck className="w-4 h-4" /></button>
+                                                    <button onClick={() => setDeletingCommentId(null)} className="text-red-500 hover:bg-red-50 p-1.5 rounded-full transition"><IconX className="w-4 h-4" /></button>
                                                 </div>
                                             ) : (
-                                                <button 
-                                                    onClick={() => setDeletingCommentId(comment.id)} 
-                                                    className="text-slate-400 hover:text-red-500 p-1 rounded-full transition-colors"
-                                                    title="Elimina commento"
-                                                >
-                                                    <IconTrash className="w-4 h-4" />
-                                                </button>
+                                                <button onClick={() => setDeletingCommentId(comment.id)} className="text-slate-300 hover:text-red-500 p-1.5 rounded-full transition-colors"><IconTrash className="w-4 h-4" /></button>
                                             )}
                                         </div>
                                     )}
