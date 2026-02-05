@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { db, supabase } from '../services/dbService';
-import { fetchPositiveNews } from '../services/geminiService';
+import { fetchPositiveNews, generateArticleImage } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
 
 export const useNewsApp = () => {
@@ -19,10 +19,35 @@ export const useNewsApp = () => {
 
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // Calcolo dell'articolo successivo per il caricamento predittivo
   const nextArticle = selectedArticle 
     ? articles[articles.findIndex(a => a.url === selectedArticle.url) + 1] || null 
     : null;
+
+  // PRE-FETCHER OTTIMIZZATO (Uno alla volta, meno frequente)
+  useEffect(() => {
+    if (loading || articles.length === 0 || showFavoritesOnly) return;
+
+    const prefetchImages = async () => {
+        // Prendiamo solo il primo articolo senza immagine per non saturare le connessioni
+        const queue = articles.filter(a => !a.imageUrl).slice(0, 1);
+        if (queue.length === 0) return;
+
+        for (const article of queue) {
+            try {
+                const img = await generateArticleImage(article.title);
+                if (img) {
+                    await db.updateArticleImage(article.url, img);
+                    setArticles(prev => prev.map(a => a.url === article.url ? { ...a, imageUrl: img } : a));
+                }
+            } catch (e) {
+                console.warn("[PREDICTIVE] Immagine fallita:", article.title);
+            }
+        }
+    };
+
+    const idleTimer = setTimeout(prefetchImages, 8000); // 8 secondi di attesa invece di 3
+    return () => clearTimeout(idleTimer);
+  }, [articles, loading, showFavoritesOnly]);
 
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
@@ -62,15 +87,6 @@ export const useNewsApp = () => {
     loadCategories();
   }, [currentUser?.id]);
 
-  useEffect(() => {
-    if (categories.length > 0 && !searchTerm && !showFavoritesOnly) {
-      const isValid = categories.some(c => c.id === activeCategoryId);
-      if (!activeCategoryId || !isValid) {
-        setActiveCategoryId(categories[0].id);
-      }
-    }
-  }, [categories, activeCategoryId, showFavoritesOnly, searchTerm]);
-
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
     setLoading(true);
     setNotification(null);
@@ -87,6 +103,7 @@ export const useNewsApp = () => {
       const aiArticles = await fetchPositiveNews(query, label);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
+        // Salvataggio asincrono senza bloccare la UI
         db.saveArticles(label, aiArticles).then(saved => {
           if (saved && saved.length > 0) {
               setArticles(current => {
@@ -127,7 +144,7 @@ export const useNewsApp = () => {
     categories,
     activeCategoryId,
     articles,
-    nextArticle, // Esponiamo l'articolo successivo
+    nextArticle, 
     activeCategoryLabel: searchTerm ? `Ricerca: ${searchTerm}` : categories.find(c => c.id === activeCategoryId)?.label,
     loading,
     selectedArticle,
@@ -179,19 +196,20 @@ export const useNewsApp = () => {
     },
     handleToggleFavorite: async (article: Article) => {
       if (!currentUser) return setShowLoginModal(true);
+      
       let id = article.id;
-      if (!id) {
+      // Forza salvataggio se manca l'ID (notizia AI volatile)
+      if (!id || !/^[0-9a-fA-F-]{36}$/.test(id)) {
         const saved = await db.saveArticles(article.category, [article]);
         id = saved[0]?.id;
       }
+      
       if (!id) return;
 
       const isFav = favoriteArticleIds.has(id);
       if (isFav) {
         setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
-        if (showFavoritesOnly) {
-          setArticles(prev => prev.filter(a => a.id !== id));
-        }
+        if (showFavoritesOnly) setArticles(prev => prev.filter(a => a.id !== id));
         await db.removeFavorite(id, currentUser.id);
       } else {
         setFavoriteArticleIds(prev => new Set(prev).add(id!));
