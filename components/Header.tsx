@@ -88,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
               
               <div className="flex flex-col">
-                <h1 className="font-display font-bold text-base md:text-xl tracking-tight leading-none">
+                <h1 className="font-display font-bold text-sm md:text-xl tracking-tight leading-none">
                   Buon Umore
                 </h1>
                 <span className="text-[7px] md:text-[9px] uppercase tracking-widest font-black opacity-70">
@@ -97,15 +97,15 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            {/* Quote Desktop (Nascondi su schermi piccoli per spazio) */}
-            <div className="flex-1 px-4 text-center hidden md:block">
+            {/* Quote Desktop */}
+            <div className="flex-1 px-4 text-center hidden sm:block">
                 <p className={`font-display italic text-sm text-white/90 line-clamp-1 transition-opacity ${loadingQuote ? 'opacity-30' : 'opacity-100'}`}>
                    "{quote ? quote.text : "Cose belle stanno per accadere..."}"
                 </p>
             </div>
 
             {/* Actions Section */}
-            <div className="flex items-center gap-1 md:gap-2 flex-shrink-0 ml-auto">
+            <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0 ml-auto min-w-fit">
               <div className="relative">
                 <button 
                   onClick={() => setShowSettings(!showSettings)}
@@ -142,17 +142,17 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {currentUser ? (
-                <div className="flex items-center gap-1.5 bg-white/10 rounded-full p-0.5 pr-2.5 border border-white/20">
+                <div className="flex items-center gap-1 bg-white/10 rounded-full p-0.5 pr-1.5 md:pr-2.5 border border-white/20">
                   <img src={currentUser.avatar} alt="avatar" className="w-7 h-7 md:w-8 md:h-8 rounded-full border border-white/40 shadow-sm" />
-                  <button onClick={onLogout} className="text-white/70 hover:text-white transition-colors">
+                  <button onClick={onLogout} className="text-white/70 hover:text-white transition-colors p-1">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                   </button>
                 </div>
               ) : (
                 <button 
                     onClick={onLoginClick} 
-                    className={`px-3.5 md:px-5 py-1.5 rounded-full font-bold text-[11px] md:text-xs transition shadow-md whitespace-nowrap flex-shrink-0 ${
-                        theme === 'accessible' ? 'bg-yellow-400 text-black' : 'bg-white text-joy-600 hover:bg-joy-50 active:scale-95'
+                    className={`min-w-[80px] md:min-w-[100px] px-3 md:px-5 py-1.5 rounded-full font-bold text-[11px] md:text-xs transition shadow-md whitespace-nowrap flex-shrink-0 active:scale-95 ${
+                        theme === 'accessible' ? 'bg-yellow-400 text-black' : 'bg-white text-joy-600 hover:bg-joy-50'
                     }`}
                 >
                   Accedi
