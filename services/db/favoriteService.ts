@@ -90,6 +90,7 @@ export const getUserFavoriteArticles = async (userId: string): Promise<Article[]
                     date: a.published_date || a.date,
                     category: a.category,
                     imageUrl: a.image_url,
+                    // Corrected field name from audio_base_64 to audio_base64
                     audioBase64: a.audio_base64,
                     sentimentScore: a.sentiment_score || 0.8,
                     likeCount: a.likes?.[0]?.count || 0,
