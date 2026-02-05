@@ -12,11 +12,7 @@ export const getCachedArticles = async (queryTerm: string): Promise<Article[]> =
         ? `%${cleanTerm}%` 
         : '%';
     
-    console.log(`[DB-ARTICLES] 🔍 Ricerca articoli per termine: "${searchTerm}"`);
-
     try {
-        // Rimosso il join likes(count) che causava errori nei log di Supabase 
-        // e sostituito con una query piana per massimizzare la compatibilità.
         const { data, error } = await supabase
           .from('articles')
           .select('*')
@@ -25,13 +21,12 @@ export const getCachedArticles = async (queryTerm: string): Promise<Article[]> =
           .limit(50);
 
         if (error) {
-            console.error(`[DB-ARTICLES] ❌ Errore critico query:`, error);
+            console.error(`[DB-ARTICLES] ❌ Errore query:`, error);
             return [];
         }
 
         return mapArticles(data);
     } catch (e) {
-        console.error("[DB-ARTICLES] ❌ Errore ricerca cache:", e);
         return [];
     }
 };
@@ -47,10 +42,9 @@ const mapArticles = (data: any[] | null): Article[] => {
         date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
         category: a.category,
         imageUrl: a.image_url || '',
-        // Corrected field name from audio_base_64 to audio_base64
         audioBase64: a.audio_base64 || '',
-        sentimentScore: a.sentiment_score,
-        likeCount: a.like_count || 0, // Fallback su colonne dirette se presenti
+        sentimentScore: a.sentiment_score || 0.8,
+        likeCount: a.like_count || 0,
         dislikeCount: a.dislike_count || 0
     }));
 };
@@ -73,7 +67,6 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             published_date: article.date, 
             sentiment_score: article.sentimentScore,
             image_url: article.imageUrl || null,
-            // Corrected field name from audio_base_64 to audio_base64
             audio_base64: article.audioBase64 || null
         };
 
@@ -88,10 +81,13 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                 savedArticles.push({
                     ...article,
                     id: data.id,
-                    category: data.category
+                    category: data.category,
+                    audioBase64: data.audio_base64
                 });
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("[DB-SAVE] Errore salvataggio riga:", e);
+        }
     }
     return savedArticles;
 };
@@ -99,16 +95,11 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
 export const updateArticleImage = async (articleUrl: string, imageUrl: string): Promise<void> => {
     try { 
         await supabase.from('articles').update({ image_url: imageUrl }).eq('url', articleUrl); 
-    } catch (e) {
-        console.error("Errore salvataggio immagine predittiva:", e);
-    }
+    } catch (e) {}
 };
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
     try { 
-        // Corrected field name from audio_base_64 to audio_base64
-        await supabase.from('articles').update({ audio_base64: audioBase64 }).eq('url', articleUrl); 
-    } catch (e) {
-        console.error("Errore salvataggio audio predittivo:", e);
-    }
+        await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); 
+    } catch (e) {}
 };
