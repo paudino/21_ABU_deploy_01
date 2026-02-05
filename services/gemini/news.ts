@@ -6,20 +6,22 @@ import { Article } from '../../types';
  * Cerca notizie positive usando Gemini 3 con Google Search Grounding.
  */
 export const fetchPositiveNews = async (promptCategory: string, categoryLabel: string): Promise<Article[]> => {
-  console.log(`[GEMINI-NEWS] 🔍 Avvio ricerca notizie per: "${categoryLabel}"`);
+  console.log(`[GEMINI-NEWS] 🔍 Ricerca notizie per: "${categoryLabel}"`);
   
   const ai = getClient();
   
+  // Prompt più rigoroso per forzare l'output JSON
   const prompt = `
-    Agisci come un giornalista esperto. Cerca sul web 3 notizie RECENTI e POSITIVE riguardanti: "${promptCategory}".
-    Focus su: innovazioni, successi, progressi scientifici o atti di solidarietà.
+    Cerca sul web 3 notizie RECENTI (ultime 48 ore) e POSITIVE riguardanti: "${promptCategory}".
+    Devono essere fatti reali, non opinioni.
     
-    RESTITUISCI I DATI IN QUESTO FORMATO JSON (NON AGGIUNGERE TESTO PRIMA O DOPO):
+    RESTITUISCI ESCLUSIVAMENTE UN ARRAY JSON VALIDO.
+    FORMATO:
     [
       {
-        "title": "Titolo",
-        "summary": "Riassunto",
-        "source": "Fonte",
+        "title": "Titolo breve",
+        "summary": "Riassunto positivo (2-3 frasi)",
+        "source": "Nome della testata giornalistica",
         "date": "YYYY-MM-DD",
         "sentimentScore": 0.9
       }
@@ -27,9 +29,6 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
   `;
 
   try {
-    console.log("[GEMINI-NEWS] 📡 Invio richiesta con Google Search...");
-    // NOTA: Con googleSearch NON usiamo responseMimeType: "application/json" 
-    // perché il modello deve poter inserire i metadati di grounding.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -39,43 +38,60 @@ export const fetchPositiveNews = async (promptCategory: string, categoryLabel: s
     });
 
     const responseText = response.text || "";
-    console.log("[GEMINI-NEWS] 📥 Risposta ricevuta (raw):", responseText);
+    if (!responseText) {
+        console.warn("[GEMINI-NEWS] ⚠️ Risposta vuota dal modello.");
+        return [];
+    }
 
-    // Estrazione metadati di grounding (URL reali)
+    // Estrazione link reali dai metadati di grounding
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const webLinks = groundingChunks
-      .filter((chunk: any) => chunk.web)
+      .filter((chunk: any) => chunk.web && chunk.web.uri)
       .map((chunk: any) => chunk.web.uri);
 
-    // Estrazione JSON dal testo (se il modello risponde con markdown o testo extra)
+    // Pulizia e parsing robusto del JSON
     let jsonStr = responseText;
-    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
+    // Rimuove eventuali blocchi di codice markdown ```json ... ```
+    jsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    // Trova l'inizio e la fine dell'array JSON nel caso ci sia testo extra
+    const startIdx = jsonStr.indexOf('[');
+    const endIdx = jsonStr.lastIndexOf(']');
+    
+    if (startIdx !== -1 && endIdx !== -1) {
+        jsonStr = jsonStr.substring(startIdx, endIdx + 1);
     }
 
     try {
       const rawArticles = JSON.parse(jsonStr);
-      console.log(`[GEMINI-NEWS] ✅ Parsing completato.`);
+      
+      if (!Array.isArray(rawArticles)) {
+          throw new Error("L'output non è un array.");
+      }
 
-      return rawArticles.map((a: any, index: number) => ({
-        title: a.title || "Notizia Positiva",
-        summary: a.summary || "Contenuto non disponibile",
-        source: a.source || "Web",
-        // Usiamo il link reale da Google Search se disponibile, altrimenti fallback
-        url: webLinks[index] || `https://www.google.com/search?q=${encodeURIComponent((a.title || "") + " " + (a.source || ""))}`,
-        date: a.date || new Date().toISOString().split('T')[0],
-        category: categoryLabel,
-        imageUrl: '',
-        sentimentScore: a.sentimentScore || 0.8
-      }));
+      return rawArticles.map((a: any, index: number) => {
+        // Fallback per l'URL: prova a usare il grounding, altrimenti costruisce un link di ricerca
+        const fallbackUrl = `https://www.google.com/search?q=${encodeURIComponent(a.title + " " + a.source)}`;
+        const realUrl = (webLinks.length > index) ? webLinks[index] : fallbackUrl;
+
+        return {
+          title: a.title || "Notizia Positiva",
+          summary: a.summary || "Contenuto non disponibile",
+          source: a.source || "Fonte Web",
+          url: realUrl,
+          date: a.date || new Date().toISOString().split('T')[0],
+          category: categoryLabel,
+          imageUrl: '',
+          sentimentScore: a.sentimentScore || 0.85
+        };
+      });
     } catch (parseError) {
-      console.error("[GEMINI-NEWS] ❌ Errore parsing JSON:", parseError);
+      console.error("[GEMINI-NEWS] ❌ Errore parsing JSON:", parseError, "Raw text:", responseText);
       return [];
     }
 
-  } catch (error) {
-    console.error("[GEMINI-NEWS] ❌ Errore API Gemini:", error);
+  } catch (error: any) {
+    console.error("[GEMINI-NEWS] ❌ Errore API Gemini:", error.message);
     return [];
   }
 };
