@@ -3,14 +3,15 @@ import { supabase } from '../supabaseClient';
 import { Comment, User } from '../../types';
 import { ensureUserExists } from './authService';
 
-const isValidUUID = (id: string): boolean => {
+const isValidUUID = (id: string | undefined): boolean => {
+    if (!id) return false;
     return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id);
 };
 
 // --- Commenti ---
 
 export const getComments = async (articleId: string): Promise<Comment[]> => {
-    if (!articleId || !isValidUUID(articleId)) return [];
+    if (!isValidUUID(articleId)) return [];
     try {
         const { data, error } = await supabase
             .from('comments')
@@ -34,7 +35,7 @@ export const getComments = async (articleId: string): Promise<Comment[]> => {
 };
 
 export const addComment = async (articleId: string, user: User, text: string): Promise<Comment> => {
-    if (!articleId || !isValidUUID(articleId)) throw new Error("ID Articolo non valido.");
+    if (!isValidUUID(articleId)) throw new Error("Salvataggio articolo in corso, riprova tra un istante.");
     
     await ensureUserExists(user);
 
@@ -63,19 +64,17 @@ export const addComment = async (articleId: string, user: User, text: string): P
 
 export const deleteComment = async (commentId: string, userId: string): Promise<void> => {
     if (!isValidUUID(commentId)) return;
-    const { error, count } = await supabase
+    await supabase
         .from('comments')
-        .delete({ count: 'exact' })
+        .delete()
         .eq('id', commentId)
         .eq('user_id', userId);
-    
-    if (error) throw error;
 };
 
 // --- Like / Dislike ---
 
 export const toggleLike = async (articleId: string, userId: string): Promise<boolean> => {
-    if (!articleId || !isValidUUID(articleId)) return false;
+    if (!isValidUUID(articleId)) return false;
     
     await supabase.from('dislikes').delete().eq('article_id', articleId).eq('user_id', userId);
     const { data: existingLike } = await supabase.from('likes').select('id').eq('article_id', articleId).eq('user_id', userId).maybeSingle();
@@ -90,7 +89,7 @@ export const toggleLike = async (articleId: string, userId: string): Promise<boo
 };
 
 export const toggleDislike = async (articleId: string, userId: string): Promise<boolean> => {
-    if (!articleId || !isValidUUID(articleId)) return false;
+    if (!isValidUUID(articleId)) return false;
     
     await supabase.from('likes').delete().eq('article_id', articleId).eq('user_id', userId);
     const { data: existingDislike } = await supabase.from('dislikes').select('id').eq('article_id', articleId).eq('user_id', userId).maybeSingle();
@@ -105,25 +104,25 @@ export const toggleDislike = async (articleId: string, userId: string): Promise<
 };
 
 export const getLikeCount = async (articleId: string): Promise<number> => {
-    if (!articleId || !isValidUUID(articleId)) return 0;
+    if (!isValidUUID(articleId)) return 0;
     const { count } = await supabase.from('likes').select('*', { count: 'exact', head: true }).eq('article_id', articleId);
     return count || 0;
 };
 
 export const hasUserLiked = async (articleId: string, userId: string): Promise<boolean> => {
-    if (!articleId || !isValidUUID(articleId)) return false;
+    if (!isValidUUID(articleId)) return false;
     const { data } = await supabase.from('likes').select('id').eq('article_id', articleId).eq('user_id', userId).maybeSingle();
     return !!data;
 };
 
 export const getDislikeCount = async (articleId: string): Promise<number> => {
-    if (!articleId || !isValidUUID(articleId)) return 0;
+    if (!isValidUUID(articleId)) return 0;
     const { count } = await supabase.from('dislikes').select('*', { count: 'exact', head: true }).eq('article_id', articleId);
     return count || 0;
 };
 
 export const hasUserDisliked = async (articleId: string, userId: string): Promise<boolean> => {
-    if (!articleId || !isValidUUID(articleId)) return false;
+    if (!isValidUUID(articleId)) return false;
     const { data } = await supabase.from('dislikes').select('id').eq('article_id', articleId).eq('user_id', userId).maybeSingle();
     return !!data;
 };
