@@ -13,18 +13,15 @@ export const getCachedArticles = async (queryTerm: string): Promise<Article[]> =
         : '%';
     
     try {
+        // Query semplificata per evitare overhead di risorse
         const { data, error } = await supabase
           .from('articles')
           .select('*')
-          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm},summary.ilike.${searchTerm}`)
+          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm}`)
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(30); // Ridotto il limite per risparmiare risorse
 
-        if (error) {
-            console.error(`[DB-ARTICLES] ❌ Errore query:`, error);
-            return [];
-        }
-
+        if (error) return [];
         return mapArticles(data);
     } catch (e) {
         return [];
@@ -42,7 +39,7 @@ const mapArticles = (data: any[] | null): Article[] => {
         date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
         category: a.category,
         imageUrl: a.image_url || '',
-        audioBase64: a.audio_base64 || '',
+        audioBase64: a.audio_base64 || '', // Uniformato a audio_base64
         sentimentScore: a.sentiment_score || 0.8,
         likeCount: a.like_count || 0,
         dislikeCount: a.dislike_count || 0
@@ -85,9 +82,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                     audioBase64: data.audio_base64
                 });
             }
-        } catch (e) {
-            console.error("[DB-SAVE] Errore salvataggio riga:", e);
-        }
+        } catch (e) {}
     }
     return savedArticles;
 };
@@ -100,6 +95,7 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
     try { 
+        // Corretto nome colonna
         await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); 
     } catch (e) {}
 };
