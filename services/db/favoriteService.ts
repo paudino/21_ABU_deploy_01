@@ -2,18 +2,14 @@
 import { supabase } from '../supabaseClient';
 import { Article } from '../../types';
 
-/**
- * SERVIZIO PREFERITI
- * Gestisce il salvataggio e il recupero degli articoli preferiti dell'utente.
- */
-
 const isValidUUID = (id: string): boolean => {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(id);
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // Estensione per gestire formati UUID standard
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id);
 };
 
 export const isFavorite = async (articleId: string, userId: string): Promise<boolean> => {
-    if (!articleId || !userId || !isValidUUID(articleId) || !isValidUUID(userId)) return false;
+    if (!articleId || !userId || !isValidUUID(articleId)) return false;
     try {
         const { data } = await supabase
                 .from('favorites')
@@ -28,13 +24,11 @@ export const isFavorite = async (articleId: string, userId: string): Promise<boo
 };
 
 export const addFavorite = async (articleId: string, userId: string): Promise<boolean> => {
-    if (!isValidUUID(articleId)) return false;
+    if (!articleId || !isValidUUID(articleId)) return false;
     try {
         const { error } = await supabase
                 .from('favorites')
-                .insert([{ article_id: articleId, user_id: userId }])
-                .select()
-                .single();
+                .insert([{ article_id: articleId, user_id: userId }]);
         if (error && error.code !== '23505') return false;
         return true;
     } catch (e) {
@@ -43,6 +37,7 @@ export const addFavorite = async (articleId: string, userId: string): Promise<bo
 };
 
 export const removeFavorite = async (articleId: string, userId: string): Promise<boolean> => {
+    if (!articleId || !isValidUUID(articleId)) return false;
     try {
         const { error } = await supabase
                 .from('favorites')
@@ -58,22 +53,17 @@ export const removeFavorite = async (articleId: string, userId: string): Promise
 export const getUserFavoriteArticles = async (userId: string): Promise<Article[]> => {
     if (!userId) return [];
     try {
-        // Includiamo i conteggi dei like e dislike direttamente nella query nested
         const { data, error } = await supabase
             .from('favorites')
             .select(`
                 article_id,
-                articles (
-                    *,
-                    likes(count),
-                    dislikes(count)
-                )
+                articles (*)
             `)
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
         if (error) {
-            console.error("Errore recupero preferiti:", error);
+            console.error("Errore recupero preferiti:", error.message);
             return [];
         }
 
@@ -90,11 +80,10 @@ export const getUserFavoriteArticles = async (userId: string): Promise<Article[]
                     date: a.published_date || a.date,
                     category: a.category,
                     imageUrl: a.image_url,
-                    // Corrected field name from audio_base_64 to audio_base64
                     audioBase64: a.audio_base64,
                     sentimentScore: a.sentiment_score || 0.8,
-                    likeCount: a.likes?.[0]?.count || 0,
-                    dislikeCount: a.dislikes?.[0]?.count || 0
+                    likeCount: 0,
+                    dislikeCount: 0
                 };
             });
     } catch (e) { 
