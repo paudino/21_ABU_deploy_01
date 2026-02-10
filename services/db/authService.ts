@@ -3,6 +3,8 @@ import { supabase } from '../supabaseClient';
 import { User } from '../../types';
 
 export const ensureUserExists = async (user: User) => {
+    if (!user.id) return;
+    console.log("[AUTH-SYNC] 👤 Sincronizzazione utente:", user.username);
     try {
         const { error } = await supabase.from('users').upsert({
             id: user.id,
@@ -10,9 +12,9 @@ export const ensureUserExists = async (user: User) => {
             avatar: user.avatar
         }, { onConflict: 'id' });
         
-        if (error) console.error("[AUTH-SYNC] ❌ Errore sync utente:", error);
+        if (error) console.error("[AUTH-SYNC] ❌ Errore upsert:", error.message);
     } catch (e) {
-        console.error("[AUTH-SYNC] ❌ Eccezione sync utente:", e);
+        console.error("[AUTH-SYNC] ❌ Eccezione sync:", e);
     }
 };
 
@@ -50,9 +52,16 @@ export const signUpWithEmail = async (email: string, password: string) => {
 export const signInWithEmail = async (email: string, password: string) => {
     try {
         const response = await (supabase.auth as any).signInWithPassword({ email, password });
+        if (response.data.user) {
+            await ensureUserExists({
+                id: response.data.user.id,
+                username: response.data.user.user_metadata.full_name || email.split('@')[0],
+                avatar: response.data.user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${response.data.user.id}`
+            });
+        }
         return response;
     } catch (e: any) {
-        console.error("[AUTH] ❌ Errore critico login:", e.message);
+        console.error("[AUTH] ❌ Errore login:", e.message);
         return { data: null, error: e };
     }
 };
@@ -91,10 +100,10 @@ export const getCurrentUserProfile = async (): Promise<User | null> => {
             avatar: user.user_metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
         };
 
+        // Assicuriamoci che il profilo esista nel DB
         await ensureUserExists(userProfile);
         return userProfile;
     } catch (e) {
-        console.warn("[AUTH] ⚠️ Impossibile recuperare profilo (rete assente).");
         return null;
     }
 };
