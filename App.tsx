@@ -10,13 +10,14 @@ import { ArticleDetail } from './components/ArticleDetail';
 import { ShareModal } from './components/ShareModal';
 import { useNewsApp } from './hooks/useNewsApp';
 import { Article, Theme } from './types';
+import { IconCheck, IconX } from './components/Icons';
 
 function App() {
   const {
     categories,
     activeCategoryId,
     articles,
-    nextArticle, // Acquisizione articolo successivo
+    nextArticle,
     activeCategoryLabel,
     loading,
     selectedArticle,
@@ -32,28 +33,22 @@ function App() {
     setShowFavoritesOnly,
     handleLogout,
     handleAddCategory,
+    handleDeleteCategory,
     loadNews,
     onImageGenerated,
     handleToggleFavorite,
     handleArticleUpdate
   } = useNewsApp();
 
-  // Stati per Temi Dinamici e Leggibilità
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('app-theme') as Theme) || 'sunshine');
   const [isReadableFont, setIsReadableFont] = useState<boolean>(() => localStorage.getItem('app-readable-font') === 'true');
   const [sharingArticle, setSharingArticle] = useState<Article | null>(null);
 
-  // Aggiorna persistenza e classi al cambio preferenze
   useEffect(() => {
     localStorage.setItem('app-theme', theme);
     localStorage.setItem('app-readable-font', String(isReadableFont));
-    
-    // Applica classe al body per il font
-    if (isReadableFont) {
-      document.body.classList.add('font-accessible');
-    } else {
-      document.body.classList.remove('font-accessible');
-    }
+    if (isReadableFont) document.body.classList.add('font-accessible');
+    else document.body.classList.remove('font-accessible');
   }, [theme, isReadableFont]);
 
   const handleOpenShare = (article: Article) => {
@@ -67,7 +62,7 @@ function App() {
   const getBackgroundImage = () => {
     switch (theme) {
       case 'evening': return "https://images.unsplash.com/photo-1519681393784-d120267933ba?q=80&w=2070&auto=format&fit=crop";
-      case 'accessible': return ""; // Nessuna immagine per alto contrasto
+      case 'accessible': return "";
       default: return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2073&auto=format&fit=crop";
     }
   };
@@ -75,22 +70,30 @@ function App() {
   return (
     <div className={`min-h-screen relative flex flex-col transition-colors duration-500 ${theme === 'accessible' ? 'bg-black text-white' : 'text-slate-900'}`}>
       
-      {/* Sfondo Immagine Fisso */}
+      {/* GLOBAL TOAST NOTIFICATION */}
+      {notification && (
+        <div className="fixed top-20 right-4 z-[100] animate-in slide-in-from-right-8 fade-in duration-300 pointer-events-none">
+            <div className={`px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border pointer-events-auto ${
+                notification.includes('già') || notification.includes('fallit') 
+                ? 'bg-rose-500 text-white border-rose-400' 
+                : 'bg-emerald-600 text-white border-emerald-500'
+            }`}>
+                {notification.includes('già') ? <IconX className="w-5 h-5" /> : <IconCheck className="w-5 h-5" />}
+                <span className="font-bold text-sm tracking-tight">{notification}</span>
+            </div>
+        </div>
+      )}
+
       <div className="fixed inset-0 z-[-1]">
         {theme !== 'accessible' && (
-          <img 
-            src={getBackgroundImage()} 
-            alt="Theme Background" 
-            className="w-full h-full object-cover transition-opacity duration-1000"
-          />
+          <img src={getBackgroundImage()} alt="Theme Background" className="w-full h-full object-cover transition-opacity duration-1000" />
         )}
-        <div className={`absolute inset-0 backdrop-blur-[0px] transition-colors duration-500 ${
+        <div className={`absolute inset-0 transition-colors duration-500 ${
             theme === 'evening' ? 'bg-indigo-950/40' : 
             theme === 'accessible' ? 'bg-black' : 'bg-gradient-to-b from-orange-100/40 via-white/20 to-orange-50/60'
         }`}></div>
       </div>
 
-      {/* Header */}
       <Header 
         currentUser={currentUser}
         showFavoritesOnly={showFavoritesOnly}
@@ -103,22 +106,18 @@ function App() {
         onToggleReadableFont={() => setIsReadableFont(!isReadableFont)}
       />
 
-      {/* Barra Categorie con Ricerca */}
       <CategoryBar 
         categories={categories}
         activeCategory={showFavoritesOnly ? '' : activeCategoryId}
         currentUser={currentUser}
         onSelectCategory={setActiveCategoryId}
         onAddCategory={handleAddCategory}
+        onDeleteCategory={handleDeleteCategory}
         onSearch={handleSearch}
       />
 
-      {/* Sfida del Giorno */}
-      {!showFavoritesOnly && currentUser && (
-         <DailyDeed userId={currentUser.id} />
-      )}
+      {!showFavoritesOnly && currentUser && <DailyDeed userId={currentUser.id} />}
 
-      {/* Contenuto Principale */}
       <div className="flex-1 relative z-10">
         <ArticleList 
           articles={articles}
@@ -132,7 +131,7 @@ function App() {
           onRefresh={loadNews}
           onImageGenerated={onImageGenerated}
           onToggleFavorite={handleToggleFavorite}
-          notification={notification}
+          notification={null} /* Disabilitato qui, ora globale */
           onCloseFavorites={() => setShowFavoritesOnly(false)}
           onLoginRequest={() => setShowLoginModal(true)}
           onShareClick={handleOpenShare}
@@ -141,13 +140,12 @@ function App() {
 
       <Footer />
 
-      {/* Modali */}
       {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
       
       {selectedArticle && (
         <ArticleDetail 
           article={selectedArticle} 
-          nextArticle={nextArticle} // Passaggio dell'articolo successivo
+          nextArticle={nextArticle}
           currentUser={currentUser} 
           isFavorite={selectedArticle.id ? favoriteArticleIds.has(selectedArticle.id) : false}
           onClose={() => setSelectedArticle(null)}
@@ -158,13 +156,7 @@ function App() {
         />
       )}
 
-      {sharingArticle && (
-        <ShareModal 
-          article={sharingArticle} 
-          onClose={() => setSharingArticle(null)} 
-        />
-      )}
-
+      {sharingArticle && <ShareModal article={sharingArticle} onClose={() => setSharingArticle(null)} />}
     </div>
   );
 }
