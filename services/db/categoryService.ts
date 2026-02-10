@@ -68,19 +68,31 @@ export const addCategory = async (label: string, value: string, userId: string):
 };
 
 export const deleteCategory = async (categoryId: string, userId: string): Promise<boolean> => {
+    console.log(`[DB-CATS] 📡 Tentativo eliminazione Supabase per riga ID: ${categoryId} e User: ${userId}`);
     try {
-        const { error } = await supabase
+        // Usiamo select() e maybeSingle() per avere certezza del risultato
+        const { data, error } = await supabase
             .from('categories')
             .delete()
             .eq('id', categoryId)
-            .eq('user_id', userId);
+            .eq('user_id', userId)
+            .select()
+            .maybeSingle();
             
         if (error) {
-            console.error("[DB-CATS] Errore delete:", error.message);
+            console.error("[DB-CATS] ❌ Errore Supabase DELETE:", error.message);
             return false;
         }
+        
+        if (!data) {
+            console.warn("[DB-CATS] ⚠️ Riga non trovata o permessi insufficienti per la cancellazione.");
+            return false;
+        }
+
+        console.log(`[DB-CATS] ✅ Categoria '${data.label}' eliminata correttamente dal database.`);
         return true;
     } catch (e) {
+        console.error("[DB-CATS] ❌ Eccezione durante la cancellazione:", e);
         return false;
     }
 };
