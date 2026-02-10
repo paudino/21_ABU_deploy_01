@@ -35,11 +35,13 @@ export const useNewsApp = () => {
 
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
+      console.log("[useNewsApp] 🔐 Evento Auth:", event);
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         const user = await db.getCurrentUserProfile();
         setCurrentUser(user);
         setShowLoginModal(false);
         if (user) {
+          console.log("[useNewsApp] 👤 Utente loggato:", user.username);
           const ids = await db.getUserFavoritesIds(user.id);
           setFavoriteArticleIds(ids);
         }
@@ -49,7 +51,10 @@ export const useNewsApp = () => {
         setShowFavoritesOnly(false);
       }
     });
-    db.getCurrentUserProfile().then(setCurrentUser);
+    db.getCurrentUserProfile().then(user => {
+        if (user) console.log("[useNewsApp] 🏠 Profilo caricato all'avvio:", user.username);
+        setCurrentUser(user);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -96,12 +101,20 @@ export const useNewsApp = () => {
   useEffect(() => {
     if (showFavoritesOnly) {
       if (currentUser) {
+        console.log("[useNewsApp] ❤️ Caricamento vista PREFERITI...");
         setLoading(true);
         db.getUserFavoriteArticles(currentUser.id).then(favs => {
+          console.log(`[useNewsApp] ✅ Ricevuti ${favs.length} preferiti dal service.`);
           setArticles(favs);
           setFavoriteArticleIds(new Set(favs.map(a => a.id).filter(Boolean) as string[]));
           setLoading(false);
-        }).catch(() => setLoading(false));
+        }).catch(err => {
+          console.error("[useNewsApp] ❌ Errore caricamento preferiti:", err);
+          setLoading(false);
+        });
+      } else {
+        setShowLoginModal(true);
+        setShowFavoritesOnly(false);
       }
     } else if (searchTerm) {
       fetchNews(searchTerm, searchTerm, false);
@@ -148,11 +161,15 @@ export const useNewsApp = () => {
     if (!currentUser) return setShowLoginModal(true);
     
     let artId = article.id;
+    console.log(`[useNewsApp] 🔃 Toggle Favorite per articolo: ${article.title} (ID: ${artId})`);
+
     // Se l'articolo non ha un ID UUID (è nuovo da AI), lo salviamo prima
     if (!artId || !/^[0-9a-fA-F-]{36}$/.test(artId)) {
+      console.log("[useNewsApp] 💾 Articolo non presente nel DB, lo salvo prima del preferito...");
       const saved = await db.saveArticles(article.category, [article]);
       if (saved && saved[0]?.id) {
           artId = saved[0].id;
+          console.log(`[useNewsApp] ✅ Articolo salvato con nuovo ID: ${artId}`);
           // Aggiorniamo l'ID nell'elenco locale per i successivi clic
           setArticles(prev => prev.map(a => a.url === article.url ? { ...a, id: artId } : a));
       } else {
@@ -170,11 +187,13 @@ export const useNewsApp = () => {
           if (showFavoritesOnly) {
               setArticles(prev => prev.filter(a => a.id !== artId));
           }
+          showToast("Rimosso dai preferiti");
       }
     } else {
       const success = await db.addFavorite(artId!, currentUser.id);
       if (success) {
           setFavoriteArticleIds(prev => new Set(prev).add(artId!));
+          showToast("Aggiunto ai preferiti ❤️");
       }
     }
   };
