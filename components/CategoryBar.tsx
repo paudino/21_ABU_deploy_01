@@ -1,7 +1,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Category, User } from '../types';
-import { IconPlus, IconSearch, IconXIcon } from './Icons';
+import { IconPlus, IconSearch, IconXIcon, IconCheck, IconTrash } from './Icons';
 
 interface CategoryBarProps {
   categories: Category[];
@@ -26,11 +26,13 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
   const [showSearch, setShowSearch] = useState(false);
   const [newCatLabel, setNewCatLabel] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   
   const [showLeftShadow, setShowLeftShadow] = useState(false);
   const [showRightShadow, setShowRightShadow] = useState(true);
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   const handleAddSubmit = () => {
     if (newCatLabel.trim()) {
@@ -49,10 +51,25 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
   };
 
   const handleDeleteClick = (e: React.MouseEvent, cat: Category) => {
-      e.stopPropagation();
       e.preventDefault();
-      if (onDeleteCategory && window.confirm(`Vuoi davvero eliminare la categoria "${cat.label}"?`)) {
-          onDeleteCategory(cat.id);
+      e.stopPropagation(); 
+      
+      console.log(`[CategoryBar] 🗑️ CLICK RILEVATO su X per: ${cat.label}`);
+
+      if (confirmingDeleteId === cat.id) {
+          console.log("[CategoryBar] ✅ SECONDO CLIC: Eseguo eliminazione effettiva");
+          if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+          setConfirmingDeleteId(null);
+          if (onDeleteCategory) onDeleteCategory(cat.id);
+      } else {
+          console.log("[CategoryBar] 🔍 PRIMO CLIC: Attivo stato di conferma");
+          setConfirmingDeleteId(cat.id);
+          
+          if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = window.setTimeout(() => {
+              console.log("[CategoryBar] ⏱️ Reset automatico conferma");
+              setConfirmingDeleteId(null);
+          }, 8000); // 8 secondi di tempo per confermare
       }
   };
 
@@ -74,6 +91,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
     return () => {
         if (currentScrollRef) currentScrollRef.removeEventListener('scroll', handleScroll);
         window.removeEventListener('resize', handleScroll);
+        if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
     };
   }, [categories]);
 
@@ -86,33 +104,47 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
 
              <div 
                 ref={scrollRef}
-                className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-2 py-1 scroll-smooth overscroll-contain"
+                className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-3 py-2 scroll-smooth overscroll-contain"
                 style={{ WebkitOverflowScrolling: 'touch' }}
              >
                  {categories.map(cat => (
-                   <div key={cat.id} className="relative flex-shrink-0 group py-1">
+                   <div 
+                    key={cat.id} 
+                    className={`flex items-center rounded-full transition-all duration-300 border ${
+                        activeCategory === cat.id 
+                        ? 'bg-joy-500 border-joy-500 text-white shadow-lg shadow-joy-500/20' 
+                        : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                    }`}
+                   >
                        <button
-                         onClick={() => onSelectCategory(cat.id)}
-                         className={`whitespace-nowrap px-4 py-2 rounded-full text-[11px] md:text-xs font-black uppercase tracking-tight transition-all flex-shrink-0 active:scale-95 flex items-center gap-2 ${
-                           activeCategory === cat.id
-                             ? 'bg-joy-500 text-white shadow-lg shadow-joy-500/30'
-                             : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
-                         }`}
+                         onClick={() => {
+                           if (confirmingDeleteId) setConfirmingDeleteId(null);
+                           onSelectCategory(cat.id);
+                         }}
+                         className="whitespace-nowrap px-4 py-2 text-[11px] md:text-xs font-black uppercase tracking-tight active:scale-95 transition-transform"
                        >
                          {cat.label}
                        </button>
-                       {cat.user_id && onDeleteCategory && (
+                       
+                       {cat.user_id && (
                            <button 
                              onClick={(e) => handleDeleteClick(e, cat)}
-                             className="absolute top-0 -right-1 bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-white shadow-sm hover:bg-rose-600 z-10"
-                             title="Elimina categoria"
+                             className={`flex items-center justify-center w-8 h-8 rounded-full transition-all mr-1 ${
+                                 confirmingDeleteId === cat.id 
+                                 ? 'bg-white text-rose-600 scale-110' 
+                                 : 'text-slate-300 hover:text-rose-500'
+                             }`}
                            >
-                               <IconXIcon className="w-2.5 h-2.5" />
+                               {confirmingDeleteId === cat.id ? (
+                                   <IconTrash className="w-4 h-4 animate-bounce" />
+                               ) : (
+                                   <IconXIcon className="w-4 h-4" />
+                               )}
                            </button>
                        )}
                    </div>
                  ))}
-                 <div className="w-6 flex-shrink-0 h-1"></div>
+                 <div className="w-8 flex-shrink-0 h-1"></div>
              </div>
 
              <div className={`absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-white to-transparent z-20 pointer-events-none transition-opacity duration-300 ${showRightShadow ? 'opacity-100' : 'opacity-0'}`}></div>
