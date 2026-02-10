@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { db, supabase } from '../services/dbService';
 import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
@@ -17,6 +17,17 @@ export const useNewsApp = () => {
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  const notificationTimeoutRef = useRef<number | null>(null);
+
+  const showToast = useCallback((msg: string, duration = 4000) => {
+    console.log("[useNewsApp] 🍞 Mostro Toast:", msg);
+    if (notificationTimeoutRef.current) window.clearTimeout(notificationTimeoutRef.current);
+    setNotification(msg);
+    notificationTimeoutRef.current = window.setTimeout(() => {
+      setNotification(null);
+    }, duration);
+  }, []);
 
   const nextArticle = selectedArticle 
     ? articles[articles.findIndex(a => a.url === selectedArticle.url) + 1] || null 
@@ -46,6 +57,7 @@ export const useNewsApp = () => {
     const loadCategories = async () => {
       try {
         let dbCats = await db.getCategories(currentUser?.id);
+        console.log("[useNewsApp] 📂 Categorie caricate:", dbCats.length);
         setCategories(dbCats);
         if (!activeCategoryId && !searchTerm && dbCats.length > 0) {
             setActiveCategoryId(dbCats[0].id);
@@ -59,7 +71,6 @@ export const useNewsApp = () => {
 
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
     setLoading(true);
-    setNotification(null);
     try {
       if (!forceAi) {
         const cached = await db.getCachedArticles(label);
@@ -73,15 +84,15 @@ export const useNewsApp = () => {
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
         db.saveArticles(label, aiArticles);
-      } else {
-        setNotification(forceAi ? "Nessuna nuova notizia trovata ora." : "Archivio vuoto.");
+      } else if (forceAi) {
+        showToast("Nessuna nuova notizia trovata ora.");
       }
     } catch (error: any) {
-      if (error.message?.includes('429')) setNotification("Limite API Gemini raggiunto. Riprova tra poco.");
+      if (error.message?.includes('429')) showToast("Limite API raggiunto. Riprova tra poco.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (showFavoritesOnly) {
@@ -100,6 +111,62 @@ export const useNewsApp = () => {
       if (cat) fetchNews(cat.value, cat.label, false);
     }
   }, [showFavoritesOnly, currentUser, activeCategoryId, categories, searchTerm, fetchNews]);
+
+  const handleAddCategory = useCallback(async (label: string) => {
+    if (!currentUser) return setShowLoginModal(true);
+    
+    const exists = categories.some(c => c.label.toLowerCase() === label.trim().toLowerCase());
+    if (exists) {
+        showToast(`La categoria "${label}" è già presente nel tuo elenco!`);
+        return;
+    }
+
+    const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
+    if (cat) {
+      setCategories(prev => [...prev, cat]);
+      setActiveCategoryId(cat.id);
+      setSearchTerm('');
+      showToast(`Categoria "${label}" aggiunta con successo! ✨`);
+    } else {
+      showToast(`Impossibile aggiungere: la categoria "${label}" esiste già.`);
+    }
+  }, [currentUser, categories, showToast]);
+
+  const handleDeleteCategory = useCallback(async (id: string) => {
+    console.log("[useNewsApp] 🗑️ Inizio handleDeleteCategory ID:", id);
+    if (!currentUser) {
+        console.warn("[useNewsApp] Tentativo eliminazione senza utente loggato");
+        return;
+    }
+
+    const catToDelete = categories.find(c => c.id === id);
+    console.log("[useNewsApp] 📂 Categoria da eliminare:", catToDelete?.label);
+
+    try {
+        const success = await db.deleteCategory(id, currentUser.id);
+        console.log("[useNewsApp] 🌍 Risultato DB deleteCategory:", success);
+
+        if (success) {
+            setCategories(prev => {
+                const filtered = prev.filter(c => c.id !== id);
+                console.log("[useNewsApp] 📉 Stato locale aggiornato, rimaste:", filtered.length);
+                return filtered;
+            });
+            
+            if (activeCategoryId === id) {
+                console.log("[useNewsApp] 🔄 Categoria attiva eliminata, resetto a default");
+                setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
+            }
+            showToast(`Categoria "${catToDelete?.label || 'personalizzata'}" eliminata.`);
+        } else {
+            console.error("[useNewsApp] ❌ Eliminazione DB fallita");
+            showToast("Errore durante l'eliminazione della categoria.");
+        }
+    } catch (e) {
+        console.error("[useNewsApp] ❌ Eccezione durante eliminazione:", e);
+        showToast("Errore di rete durante l'eliminazione.");
+    }
+  }, [currentUser, categories, activeCategoryId, showToast]);
 
   const handleToggleFavorite = async (article: Article) => {
     if (!currentUser) return setShowLoginModal(true);
@@ -121,33 +188,6 @@ export const useNewsApp = () => {
     } else {
       const success = await db.addFavorite(artId, currentUser.id);
       if (success) setFavoriteArticleIds(prev => new Set(prev).add(artId!));
-    }
-  };
-
-  const handleAddCategory = async (label: string) => {
-    if (!currentUser) return setShowLoginModal(true);
-    const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
-    if (cat) {
-      setCategories(prev => [...prev, cat]);
-      setActiveCategoryId(cat.id);
-      setSearchTerm('');
-      setNotification(null);
-    } else {
-      setNotification(`La categoria "${label}" esiste già!`);
-      setTimeout(() => setNotification(null), 4000);
-    }
-  };
-
-  const handleDeleteCategory = async (id: string) => {
-    if (!currentUser) return;
-    const success = await db.deleteCategory(id, currentUser.id);
-    if (success) {
-        setCategories(prev => prev.filter(c => c.id !== id));
-        if (activeCategoryId === id) {
-            setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
-        }
-        setNotification("Categoria eliminata con successo.");
-        setTimeout(() => setNotification(null), 3000);
     }
   };
 
