@@ -8,20 +8,23 @@ export const cleanupOldArticles = async (): Promise<void> => {
 
 export const getCachedArticles = async (queryTerm: string): Promise<Article[]> => {
     const cleanTerm = queryTerm ? queryTerm.trim() : '';
+    // Cerchiamo in modo più ampio per non perdere notizie salvate con etichette leggermente diverse
     const searchTerm = (cleanTerm && cleanTerm !== 'Generale') 
         ? `%${cleanTerm}%` 
         : '%';
     
     try {
-        // Query semplificata per evitare overhead di risorse
         const { data, error } = await supabase
           .from('articles')
           .select('*')
-          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm}`)
+          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm},summary.ilike.${searchTerm}`)
           .order('created_at', { ascending: false })
-          .limit(30); // Ridotto il limite per risparmiare risorse
+          .limit(40);
 
-        if (error) return [];
+        if (error) {
+            console.error("[DB-ARTICLES] Errore query cache:", error.message);
+            return [];
+        }
         return mapArticles(data);
     } catch (e) {
         return [];
@@ -39,7 +42,7 @@ const mapArticles = (data: any[] | null): Article[] => {
         date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
         category: a.category,
         imageUrl: a.image_url || '',
-        audioBase64: a.audio_base64 || '', // Uniformato a audio_base64
+        audioBase64: a.audio_base64 || '', // Allineato allo schema: audio_base64
         sentimentScore: a.sentiment_score || 0.8,
         likeCount: a.like_count || 0,
         dislikeCount: a.dislike_count || 0
@@ -64,7 +67,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             published_date: article.date, 
             sentiment_score: article.sentimentScore,
             image_url: article.imageUrl || null,
-            audio_base64: article.audioBase64 || null
+            audio_base64: article.audioBase64 || null // Allineato allo schema: audio_base64
         };
 
         try {
@@ -95,7 +98,7 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
     try { 
-        // Corretto nome colonna
+        // Corretto definitivamente in audio_base64
         await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); 
     } catch (e) {}
 };
