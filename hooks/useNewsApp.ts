@@ -57,7 +57,6 @@ export const useNewsApp = () => {
     const loadCategories = async () => {
       try {
         let dbCats = await db.getCategories(currentUser?.id);
-        console.log("[useNewsApp] 📂 Categorie caricate:", dbCats.length);
         setCategories(dbCats);
         if (!activeCategoryId && !searchTerm && dbCats.length > 0) {
             setActiveCategoryId(dbCats[0].id);
@@ -114,57 +113,34 @@ export const useNewsApp = () => {
 
   const handleAddCategory = useCallback(async (label: string) => {
     if (!currentUser) return setShowLoginModal(true);
-    
     const exists = categories.some(c => c.label.toLowerCase() === label.trim().toLowerCase());
     if (exists) {
-        showToast(`La categoria "${label}" è già presente nel tuo elenco!`);
+        showToast(`La categoria "${label}" è già presente!`);
         return;
     }
-
     const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
     if (cat) {
       setCategories(prev => [...prev, cat]);
       setActiveCategoryId(cat.id);
       setSearchTerm('');
-      showToast(`Categoria "${label}" aggiunta con successo! ✨`);
-    } else {
-      showToast(`Impossibile aggiungere: la categoria "${label}" esiste già.`);
+      showToast(`Categoria "${label}" aggiunta! ✨`);
     }
   }, [currentUser, categories, showToast]);
 
   const handleDeleteCategory = useCallback(async (id: string) => {
-    console.log("[useNewsApp] 🗑️ Inizio handleDeleteCategory ID:", id);
-    if (!currentUser) {
-        console.warn("[useNewsApp] Tentativo eliminazione senza utente loggato");
-        return;
-    }
-
+    if (!currentUser) return;
     const catToDelete = categories.find(c => c.id === id);
-    console.log("[useNewsApp] 📂 Categoria da eliminare:", catToDelete?.label);
-
     try {
         const success = await db.deleteCategory(id, currentUser.id);
-        console.log("[useNewsApp] 🌍 Risultato DB deleteCategory:", success);
-
         if (success) {
-            setCategories(prev => {
-                const filtered = prev.filter(c => c.id !== id);
-                console.log("[useNewsApp] 📉 Stato locale aggiornato, rimaste:", filtered.length);
-                return filtered;
-            });
-            
+            setCategories(prev => prev.filter(c => c.id !== id));
             if (activeCategoryId === id) {
-                console.log("[useNewsApp] 🔄 Categoria attiva eliminata, resetto a default");
                 setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
             }
-            showToast(`Categoria "${catToDelete?.label || 'personalizzata'}" eliminata.`);
-        } else {
-            console.error("[useNewsApp] ❌ Eliminazione DB fallita");
-            showToast("Errore durante l'eliminazione della categoria.");
+            showToast(`Categoria "${catToDelete?.label}" eliminata.`);
         }
     } catch (e) {
-        console.error("[useNewsApp] ❌ Eccezione durante eliminazione:", e);
-        showToast("Errore di rete durante l'eliminazione.");
+        showToast("Errore durante l'eliminazione.");
     }
   }, [currentUser, categories, activeCategoryId, showToast]);
 
@@ -172,22 +148,34 @@ export const useNewsApp = () => {
     if (!currentUser) return setShowLoginModal(true);
     
     let artId = article.id;
+    // Se l'articolo non ha un ID UUID (è nuovo da AI), lo salviamo prima
     if (!artId || !/^[0-9a-fA-F-]{36}$/.test(artId)) {
       const saved = await db.saveArticles(article.category, [article]);
       if (saved && saved[0]?.id) {
           artId = saved[0].id;
+          // Aggiorniamo l'ID nell'elenco locale per i successivi clic
           setArticles(prev => prev.map(a => a.url === article.url ? { ...a, id: artId } : a));
-          if (selectedArticle?.url === article.url) setSelectedArticle({ ...selectedArticle, id: artId });
-      } else return;
+      } else {
+          showToast("Impossibile salvare l'articolo nei preferiti.");
+          return;
+      }
     }
 
-    const isFav = favoriteArticleIds.has(artId);
+    const isFav = favoriteArticleIds.has(artId!);
     if (isFav) {
-      const success = await db.removeFavorite(artId, currentUser.id);
-      if (success) setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(artId!); return n; });
+      const success = await db.removeFavorite(artId!, currentUser.id);
+      if (success) {
+          setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(artId!); return n; });
+          // Se siamo nella vista preferiti, lo rimuoviamo subito dall'elenco visibile
+          if (showFavoritesOnly) {
+              setArticles(prev => prev.filter(a => a.id !== artId));
+          }
+      }
     } else {
-      const success = await db.addFavorite(artId, currentUser.id);
-      if (success) setFavoriteArticleIds(prev => new Set(prev).add(artId!));
+      const success = await db.addFavorite(artId!, currentUser.id);
+      if (success) {
+          setFavoriteArticleIds(prev => new Set(prev).add(artId!));
+      }
     }
   };
 
