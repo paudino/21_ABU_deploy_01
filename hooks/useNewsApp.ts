@@ -1,7 +1,7 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db, supabase } from '../services/dbService';
-import { fetchPositiveNews, generateArticleImage } from '../services/geminiService';
+import { fetchPositiveNews } from '../services/geminiService';
 import { Category, Article, User, DEFAULT_CATEGORIES } from '../types';
 
 export const useNewsApp = () => {
@@ -16,18 +16,11 @@ export const useNewsApp = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [favoriteArticleIds, setFavoriteArticleIds] = useState<Set<string>>(new Set());
   const [notification, setNotification] = useState<string | null>(null);
-
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const nextArticle = selectedArticle 
     ? articles[articles.findIndex(a => a.url === selectedArticle.url) + 1] || null 
     : null;
-
-  // PRE-FETCHER DISABILITATO TEMPORANEAMENTE PER SALVARE QUOTA (429)
-  // Verranno generate le immagini solo all'apertura del dettaglio o al primo caricamento utile
-  useEffect(() => {
-    // Logica rimossa per fermare il consumo di API Gemini in background
-  }, [articles, loading]);
 
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
@@ -45,7 +38,6 @@ export const useNewsApp = () => {
         setShowFavoritesOnly(false);
       }
     });
-
     db.getCurrentUserProfile().then(setCurrentUser);
     return () => subscription.unsubscribe();
   }, []);
@@ -54,13 +46,9 @@ export const useNewsApp = () => {
     const loadCategories = async () => {
       try {
         let dbCats = await db.getCategories(currentUser?.id);
-        if (!dbCats || dbCats.length === 0) {
-          setCategories(DEFAULT_CATEGORIES);
-          db.seedCategories();
-          if (!activeCategoryId && !searchTerm) setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
-        } else {
-          setCategories(dbCats);
-          if (!activeCategoryId && !searchTerm) setActiveCategoryId(dbCats[0].id);
+        setCategories(dbCats);
+        if (!activeCategoryId && !searchTerm && dbCats.length > 0) {
+            setActiveCategoryId(dbCats[0].id);
         }
       } catch (err) {
         setCategories(DEFAULT_CATEGORIES);
@@ -81,19 +69,15 @@ export const useNewsApp = () => {
           return; 
         }
       }
-
       const aiArticles = await fetchPositiveNews(query, label);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
         db.saveArticles(label, aiArticles);
       } else {
-        setNotification(forceAi ? "Limite API raggiunto o nessuna notizia trovata. Riprova più tardi." : "Archivio vuoto.");
+        setNotification(forceAi ? "Nessuna nuova notizia trovata ora." : "Archivio vuoto.");
       }
     } catch (error: any) {
-      console.error("[FETCH-NEWS] Errore:", error);
-      if (error.message?.includes('429')) {
-          setNotification("Troppe richieste a Gemini. Attendere un minuto.");
-      }
+      if (error.message?.includes('429')) setNotification("Limite API Gemini raggiunto. Riprova tra poco.");
     } finally {
       setLoading(false);
     }
@@ -117,6 +101,56 @@ export const useNewsApp = () => {
     }
   }, [showFavoritesOnly, currentUser, activeCategoryId, categories, searchTerm, fetchNews]);
 
+  const handleToggleFavorite = async (article: Article) => {
+    if (!currentUser) return setShowLoginModal(true);
+    
+    let artId = article.id;
+    if (!artId || !/^[0-9a-fA-F-]{36}$/.test(artId)) {
+      const saved = await db.saveArticles(article.category, [article]);
+      if (saved && saved[0]?.id) {
+          artId = saved[0].id;
+          setArticles(prev => prev.map(a => a.url === article.url ? { ...a, id: artId } : a));
+          if (selectedArticle?.url === article.url) setSelectedArticle({ ...selectedArticle, id: artId });
+      } else return;
+    }
+
+    const isFav = favoriteArticleIds.has(artId);
+    if (isFav) {
+      const success = await db.removeFavorite(artId, currentUser.id);
+      if (success) setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(artId!); return n; });
+    } else {
+      const success = await db.addFavorite(artId, currentUser.id);
+      if (success) setFavoriteArticleIds(prev => new Set(prev).add(artId!));
+    }
+  };
+
+  const handleAddCategory = async (label: string) => {
+    if (!currentUser) return setShowLoginModal(true);
+    const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
+    if (cat) {
+      setCategories(prev => [...prev, cat]);
+      setActiveCategoryId(cat.id);
+      setSearchTerm('');
+      setNotification(null);
+    } else {
+      setNotification(`La categoria "${label}" esiste già!`);
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    if (!currentUser) return;
+    const success = await db.deleteCategory(id, currentUser.id);
+    if (success) {
+        setCategories(prev => prev.filter(c => c.id !== id));
+        if (activeCategoryId === id) {
+            setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
+        }
+        setNotification("Categoria eliminata con successo.");
+        setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
   return {
     categories,
     activeCategoryId,
@@ -133,6 +167,7 @@ export const useNewsApp = () => {
     setActiveCategoryId: (id: string) => {
       setSearchTerm(''); 
       setActiveCategoryId(id);
+      setShowFavoritesOnly(false);
     },
     handleSearch: (term: string) => {
       if (!term.trim()) return;
@@ -142,28 +177,13 @@ export const useNewsApp = () => {
     },
     setSelectedArticle,
     setShowLoginModal,
-    setShowFavoritesOnly: (val: boolean) => {
-        if (val) setSearchTerm('');
-        setShowFavoritesOnly(val);
-    },
-    handleLogout: () => {
-      setCurrentUser(null);
-      setFavoriteArticleIds(new Set());
-      db.signOut();
-    },
-    handleAddCategory: async (label: string) => {
-      if (!currentUser) return setShowLoginModal(true);
-      const cat = await db.addCategory(label, `${label} notizie positive`, currentUser.id);
-      if (cat) {
-        setCategories(prev => [...prev, cat]);
-        setSearchTerm('');
-        setActiveCategoryId(cat.id);
-      }
-    },
+    setShowFavoritesOnly,
+    handleLogout: () => db.signOut(),
+    handleAddCategory,
+    handleDeleteCategory,
     loadNews: () => {
-      if (searchTerm) {
-        fetchNews(searchTerm, searchTerm, true);
-      } else {
+      if (searchTerm) fetchNews(searchTerm, searchTerm, true);
+      else {
         const cat = categories.find(c => c.id === activeCategoryId);
         if (cat) fetchNews(cat.value, cat.label, true);
       }
@@ -171,30 +191,9 @@ export const useNewsApp = () => {
     onImageGenerated: (url: string, img: string) => {
       setArticles(prev => prev.map(a => a.url === url ? { ...a, imageUrl: img } : a));
     },
-    handleToggleFavorite: async (article: Article) => {
-      if (!currentUser) return setShowLoginModal(true);
-      
-      let id = article.id;
-      if (!id || !/^[0-9a-fA-F-]{36}$/.test(id)) {
-        const saved = await db.saveArticles(article.category, [article]);
-        id = saved[0]?.id;
-      }
-      
-      if (!id) return;
-
-      const isFav = favoriteArticleIds.has(id);
-      if (isFav) {
-        setFavoriteArticleIds(prev => { const n = new Set(prev); n.delete(id!); return n; });
-        if (showFavoritesOnly) setArticles(prev => prev.filter(a => a.id !== id));
-        await db.removeFavorite(id, currentUser.id);
-      } else {
-        setFavoriteArticleIds(prev => new Set(prev).add(id!));
-        await db.addFavorite(id, currentUser.id);
-      }
-    },
+    handleToggleFavorite,
     handleArticleUpdate: (updated: Article) => {
       setArticles(prev => prev.map(a => (a.id === updated.id || a.url === updated.url) ? updated : a));
-      setSelectedArticle(prev => (prev && (prev.id === updated.id || prev.url === updated.url)) ? updated : prev);
     }
   };
 };
