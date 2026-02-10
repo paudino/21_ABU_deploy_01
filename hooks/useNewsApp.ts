@@ -45,7 +45,7 @@ export const useNewsApp = () => {
         }
     };
 
-    const idleTimer = setTimeout(prefetchImages, 8000); // 8 secondi di attesa invece di 3
+    const idleTimer = setTimeout(prefetchImages, 8000); 
     return () => clearTimeout(idleTimer);
   }, [articles, loading, showFavoritesOnly]);
 
@@ -70,6 +70,7 @@ export const useNewsApp = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Caricamento categorie e selezione automatica della prima
   useEffect(() => {
     const loadCategories = async () => {
       try {
@@ -77,33 +78,44 @@ export const useNewsApp = () => {
         if (!dbCats || dbCats.length === 0) {
           setCategories(DEFAULT_CATEGORIES);
           db.seedCategories();
+          if (!activeCategoryId && !searchTerm) {
+              setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
+          }
         } else {
           setCategories(dbCats);
+          if (!activeCategoryId && !searchTerm) {
+              setActiveCategoryId(dbCats[0].id);
+          }
         }
       } catch (err) {
         setCategories(DEFAULT_CATEGORIES);
+        if (!activeCategoryId && !searchTerm) {
+            setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
+        }
       }
     };
     loadCategories();
   }, [currentUser?.id]);
 
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
+    console.log(`[useNewsApp] 📡 Recupero notizie per: ${label} (forceAi: ${forceAi})`);
     setLoading(true);
     setNotification(null);
     try {
       if (!forceAi) {
         const cached = await db.getCachedArticles(label);
         if (cached && cached.length > 0) {
+          console.log(`[useNewsApp] ✅ Trovati ${cached.length} articoli in cache per ${label}`);
           setArticles(cached); 
           setLoading(false); 
           return; 
         }
       }
 
+      console.log(`[useNewsApp] 🤖 Richiesta AI per nuove notizie: ${label}`);
       const aiArticles = await fetchPositiveNews(query, label);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        // Salvataggio asincrono senza bloccare la UI
         db.saveArticles(label, aiArticles).then(saved => {
           if (saved && saved.length > 0) {
               setArticles(current => {
@@ -113,10 +125,15 @@ export const useNewsApp = () => {
           }
         });
       } else {
-        setNotification(forceAi ? "Nessuna nuova notizia trovata per questa ricerca." : "Archivio vuoto.");
+        setNotification(forceAi ? "Nessuna nuova notizia trovata." : "Archivio vuoto, prova ad aggiornare.");
+        // Se la ricerca AI fallisce e non abbiamo articoli, assicuriamoci di mostrare almeno la cache se esiste
+        if (!forceAi) {
+           const cached = await db.getCachedArticles(label);
+           if (cached) setArticles(cached);
+        }
       }
     } catch (error) {
-      console.error("[FETCH-NEWS] Errore:", error);
+      console.error("[FETCH-NEWS] Errore critico:", error);
     } finally {
       setLoading(false);
     }
@@ -134,7 +151,7 @@ export const useNewsApp = () => {
       }
     } else if (searchTerm) {
       fetchNews(searchTerm, searchTerm, false);
-    } else if (activeCategoryId) {
+    } else if (activeCategoryId && categories.length > 0) {
       const cat = categories.find(c => c.id === activeCategoryId);
       if (cat) fetchNews(cat.value, cat.label, false);
     }
@@ -198,7 +215,6 @@ export const useNewsApp = () => {
       if (!currentUser) return setShowLoginModal(true);
       
       let id = article.id;
-      // Forza salvataggio se manca l'ID (notizia AI volatile)
       if (!id || !/^[0-9a-fA-F-]{36}$/.test(id)) {
         const saved = await db.saveArticles(article.category, [article]);
         id = saved[0]?.id;
