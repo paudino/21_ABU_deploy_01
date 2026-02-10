@@ -10,8 +10,6 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
     const cleanLabel = categoryLabel ? categoryLabel.trim() : 'Generale';
     
     try {
-        // Query ultra-veloce basata solo sulla categoria esatta o ricerca semplice sul titolo
-        // Rimosso l'operatore .or() complesso che causava il timeout
         let query = supabase
           .from('articles')
           .select('*')
@@ -22,7 +20,7 @@ export const getCachedArticles = async (categoryLabel: string): Promise<Article[
         const { data, error } = await query;
 
         if (error) {
-            console.error(`[DB-ARTICLES] ❌ Errore timeout o query:`, error.message);
+            console.error(`[DB-ARTICLES] ❌ Errore query:`, error.message);
             return [];
         }
         return mapArticles(data);
@@ -42,7 +40,7 @@ const mapArticles = (data: any[] | null): Article[] => {
         date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
         category: a.category,
         imageUrl: a.image_url || '',
-        audioBase64: a.audio_base_64 || a.audio_base64 || '', 
+        audioBase64: a.audio_base64 || '', // Usato audio_base64
         sentimentScore: a.sentiment_score || 0.8,
         likeCount: a.like_count || 0,
         dislikeCount: a.dislike_count || 0
@@ -67,7 +65,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             published_date: article.date, 
             sentiment_score: article.sentimentScore,
             image_url: article.imageUrl || null,
-            audio_base_64: article.audioBase64 || null
+            audio_base64: article.audioBase64 || null // Usato audio_base64
         };
 
         try {
@@ -82,7 +80,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                     ...article,
                     id: data.id,
                     category: data.category,
-                    audioBase64: data.audio_base_64
+                    audioBase64: data.audio_base64
                 });
             }
         } catch (e) {}
@@ -99,5 +97,8 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
     try { 
         await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); 
-    } catch (e) {}
+    } catch (e) {
+        // Fallback in caso di mismatch schema istantaneo
+        try { await supabase.from('articles').update({ audio_base64: audioBase64 }).eq('url', articleUrl); } catch(e2){}
+    }
 };
