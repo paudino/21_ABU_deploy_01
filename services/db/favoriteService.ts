@@ -44,37 +44,57 @@ export const removeFavorite = async (articleId: string, userId: string): Promise
 
 export const getUserFavoriteArticles = async (userId: string): Promise<Article[]> => {
     if (!userId) return [];
+    console.log("[DB-FAVS] 📡 Recupero articoli preferiti per utente:", userId);
     try {
-        // Query ottimizzata: prendiamo i preferiti e join con articles
         const { data, error } = await supabase
             .from('favorites')
-            .select('article_id, articles (*)')
+            .select(`
+                article_id,
+                articles (
+                    id,
+                    title,
+                    summary,
+                    source,
+                    url,
+                    published_date,
+                    category,
+                    image_url,
+                    audio_base64,
+                    sentiment_score
+                )
+            `)
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
-        if (error) throw error;
+        if (error) {
+            console.error("[DB-FAVS] ❌ Errore Supabase:", error);
+            return [];
+        }
 
-        return (data || [])
+        const mapped = (data || [])
             .filter(item => item.articles)
             .map(item => {
-                const a = item.articles;
+                const a: any = item.articles;
                 return {
                     id: a.id,
                     title: a.title,
                     summary: a.summary,
                     source: a.source,
                     url: a.url,
-                    date: a.published_date || a.date,
+                    date: a.published_date,
                     category: a.category,
                     imageUrl: a.image_url,
-                    audioBase64: a.audio_base64 || a.audio_base_6_4,
+                    audioBase64: a.audio_base64,
                     sentimentScore: a.sentiment_score || 0.8,
                     likeCount: 0,
                     dislikeCount: 0
                 };
             });
+            
+        console.log(`[DB-FAVS] ✅ Trovati ${mapped.length} articoli preferiti.`);
+        return mapped;
     } catch (e) {
-        console.error("[DB-FAVS] Errore recupero articoli preferiti:", e);
+        console.error("[DB-FAVS] ❌ Eccezione recupero preferiti:", e);
         return [];
     }
 };
