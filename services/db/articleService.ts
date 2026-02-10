@@ -40,7 +40,8 @@ const mapArticles = (data: any[] | null): Article[] => {
         date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
         category: a.category,
         imageUrl: a.image_url || '',
-        audioBase64: a.audio_base64 || '', // Usato audio_base64
+        // Fix: Use audio_base64 to match database schema
+        audioBase64: a.audio_base64 || '',
         sentimentScore: a.sentiment_score || 0.8,
         likeCount: a.like_count || 0,
         dislikeCount: a.dislike_count || 0
@@ -65,7 +66,8 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             published_date: article.date, 
             sentiment_score: article.sentimentScore,
             image_url: article.imageUrl || null,
-            audio_base64: article.audioBase64 || null // Usato audio_base64
+            // Fix: Use audio_base64 to match database schema
+            audio_base64: article.audioBase64 || null
         };
 
         try {
@@ -95,10 +97,11 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 };
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
+    // Fix: Updated to use audio_base64 primarily to match database schema
     try { 
-        await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); 
+        await supabase.from('articles').update({ audio_base64: audioBase64 }).eq('url', articleUrl); 
     } catch (e) {
-        // Fallback in caso di mismatch schema istantaneo
+        // Fallback in case of mismatch schema
         try { await supabase.from('articles').update({ audio_base64: audioBase64 }).eq('url', articleUrl); } catch(e2){}
     }
 };
