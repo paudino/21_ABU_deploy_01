@@ -23,31 +23,11 @@ export const useNewsApp = () => {
     ? articles[articles.findIndex(a => a.url === selectedArticle.url) + 1] || null 
     : null;
 
-  // PRE-FETCHER OTTIMIZZATO (Uno alla volta, meno frequente)
+  // PRE-FETCHER DISABILITATO TEMPORANEAMENTE PER SALVARE QUOTA (429)
+  // Verranno generate le immagini solo all'apertura del dettaglio o al primo caricamento utile
   useEffect(() => {
-    if (loading || articles.length === 0 || showFavoritesOnly) return;
-
-    const prefetchImages = async () => {
-        // Prendiamo solo il primo articolo senza immagine per non saturare le connessioni
-        const queue = articles.filter(a => !a.imageUrl).slice(0, 1);
-        if (queue.length === 0) return;
-
-        for (const article of queue) {
-            try {
-                const img = await generateArticleImage(article.title);
-                if (img) {
-                    await db.updateArticleImage(article.url, img);
-                    setArticles(prev => prev.map(a => a.url === article.url ? { ...a, imageUrl: img } : a));
-                }
-            } catch (e) {
-                console.warn("[PREDICTIVE] Immagine fallita:", article.title);
-            }
-        }
-    };
-
-    const idleTimer = setTimeout(prefetchImages, 8000); 
-    return () => clearTimeout(idleTimer);
-  }, [articles, loading, showFavoritesOnly]);
+    // Logica rimossa per fermare il consumo di API Gemini in background
+  }, [articles, loading]);
 
   useEffect(() => {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange(async (event: string, session: any) => {
@@ -70,7 +50,6 @@ export const useNewsApp = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Caricamento categorie e selezione automatica della prima
   useEffect(() => {
     const loadCategories = async () => {
       try {
@@ -78,62 +57,43 @@ export const useNewsApp = () => {
         if (!dbCats || dbCats.length === 0) {
           setCategories(DEFAULT_CATEGORIES);
           db.seedCategories();
-          if (!activeCategoryId && !searchTerm) {
-              setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
-          }
+          if (!activeCategoryId && !searchTerm) setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
         } else {
           setCategories(dbCats);
-          if (!activeCategoryId && !searchTerm) {
-              setActiveCategoryId(dbCats[0].id);
-          }
+          if (!activeCategoryId && !searchTerm) setActiveCategoryId(dbCats[0].id);
         }
       } catch (err) {
         setCategories(DEFAULT_CATEGORIES);
-        if (!activeCategoryId && !searchTerm) {
-            setActiveCategoryId(DEFAULT_CATEGORIES[0].id);
-        }
       }
     };
     loadCategories();
   }, [currentUser?.id]);
 
   const fetchNews = useCallback(async (query: string, label: string, forceAi: boolean) => {
-    console.log(`[useNewsApp] 📡 Recupero notizie per: ${label} (forceAi: ${forceAi})`);
     setLoading(true);
     setNotification(null);
     try {
       if (!forceAi) {
         const cached = await db.getCachedArticles(label);
         if (cached && cached.length > 0) {
-          console.log(`[useNewsApp] ✅ Trovati ${cached.length} articoli in cache per ${label}`);
           setArticles(cached); 
           setLoading(false); 
           return; 
         }
       }
 
-      console.log(`[useNewsApp] 🤖 Richiesta AI per nuove notizie: ${label}`);
       const aiArticles = await fetchPositiveNews(query, label);
       if (aiArticles && aiArticles.length > 0) {
         setArticles(aiArticles.map(a => ({ ...a, isNew: true })));
-        db.saveArticles(label, aiArticles).then(saved => {
-          if (saved && saved.length > 0) {
-              setArticles(current => {
-                const idMap = new Map(saved.map(s => [s.url, s.id]));
-                return current.map(a => ({ ...a, id: idMap.get(a.url) || a.id }));
-              });
-          }
-        });
+        db.saveArticles(label, aiArticles);
       } else {
-        setNotification(forceAi ? "Nessuna nuova notizia trovata." : "Archivio vuoto, prova ad aggiornare.");
-        // Se la ricerca AI fallisce e non abbiamo articoli, assicuriamoci di mostrare almeno la cache se esiste
-        if (!forceAi) {
-           const cached = await db.getCachedArticles(label);
-           if (cached) setArticles(cached);
-        }
+        setNotification(forceAi ? "Limite API raggiunto o nessuna notizia trovata. Riprova più tardi." : "Archivio vuoto.");
       }
-    } catch (error) {
-      console.error("[FETCH-NEWS] Errore critico:", error);
+    } catch (error: any) {
+      console.error("[FETCH-NEWS] Errore:", error);
+      if (error.message?.includes('429')) {
+          setNotification("Troppe richieste a Gemini. Attendere un minuto.");
+      }
     } finally {
       setLoading(false);
     }
