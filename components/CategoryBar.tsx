@@ -1,8 +1,7 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Category, User } from '../types';
-import { IconPlus, IconSearch, IconX } from './Icons';
-import { Tooltip } from './Tooltip';
+import { IconPlus, IconSearch, IconXIcon } from './Icons';
 
 interface CategoryBarProps {
   categories: Category[];
@@ -10,6 +9,7 @@ interface CategoryBarProps {
   currentUser: User | null;
   onSelectCategory: (id: string) => void;
   onAddCategory: (label: string) => void;
+  onDeleteCategory?: (id: string) => void;
   onSearch?: (term: string) => void;
 }
 
@@ -19,6 +19,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
   currentUser,
   onSelectCategory,
   onAddCategory,
+  onDeleteCategory,
   onSearch
 }) => {
   const [showAddCat, setShowAddCat] = useState(false);
@@ -47,6 +48,14 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
     }
   };
 
+  const handleDeleteClick = (e: React.MouseEvent, cat: Category) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (onDeleteCategory && window.confirm(`Vuoi davvero eliminare la categoria "${cat.label}"?`)) {
+          onDeleteCategory(cat.id);
+      }
+  };
+
   const handleScroll = () => {
     if (scrollRef.current) {
       const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
@@ -73,7 +82,6 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-2">
          
          <div className="flex-1 relative flex items-center overflow-hidden min-w-0">
-             {/* Gradient Shadows per mobile scroll */}
              <div className={`absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white to-transparent z-20 pointer-events-none transition-opacity duration-300 ${showLeftShadow ? 'opacity-100' : 'opacity-0'}`}></div>
 
              <div 
@@ -82,19 +90,29 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                 style={{ WebkitOverflowScrolling: 'touch' }}
              >
                  {categories.map(cat => (
-                   <button
-                     key={cat.id}
-                     onClick={() => onSelectCategory(cat.id)}
-                     className={`whitespace-nowrap px-4 py-2 rounded-full text-[11px] md:text-xs font-black uppercase tracking-tight transition-all flex-shrink-0 active:scale-95 ${
-                       activeCategory === cat.id
-                         ? 'bg-joy-500 text-white shadow-lg shadow-joy-500/30'
-                         : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
-                     }`}
-                   >
-                     {cat.label}
-                   </button>
+                   <div key={cat.id} className="relative flex-shrink-0 group py-1">
+                       <button
+                         onClick={() => onSelectCategory(cat.id)}
+                         className={`whitespace-nowrap px-4 py-2 rounded-full text-[11px] md:text-xs font-black uppercase tracking-tight transition-all flex-shrink-0 active:scale-95 flex items-center gap-2 ${
+                           activeCategory === cat.id
+                             ? 'bg-joy-500 text-white shadow-lg shadow-joy-500/30'
+                             : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
+                         }`}
+                       >
+                         {cat.label}
+                       </button>
+                       {cat.user_id && onDeleteCategory && (
+                           <button 
+                             onClick={(e) => handleDeleteClick(e, cat)}
+                             className="absolute top-0 -right-1 bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-white shadow-sm hover:bg-rose-600 z-10"
+                             title="Elimina categoria"
+                           >
+                               <IconXIcon className="w-2.5 h-2.5" />
+                           </button>
+                       )}
+                   </div>
                  ))}
-                 <div className="w-6 flex-shrink-0 h-1"></div> {/* Spacer finale per scroll */}
+                 <div className="w-6 flex-shrink-0 h-1"></div>
              </div>
 
              <div className={`absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-white to-transparent z-20 pointer-events-none transition-opacity duration-300 ${showRightShadow ? 'opacity-100' : 'opacity-0'}`}></div>
