@@ -6,23 +6,23 @@ export const cleanupOldArticles = async (): Promise<void> => {
     try { await supabase.rpc('cleanup_old_articles'); } catch (e) {}
 };
 
-export const getCachedArticles = async (queryTerm: string): Promise<Article[]> => {
-    const cleanTerm = queryTerm ? queryTerm.trim() : '';
-    // Cerchiamo in modo più ampio per non perdere notizie salvate con etichette leggermente diverse
-    const searchTerm = (cleanTerm && cleanTerm !== 'Generale') 
-        ? `%${cleanTerm}%` 
-        : '%';
+export const getCachedArticles = async (categoryLabel: string): Promise<Article[]> => {
+    const cleanLabel = categoryLabel ? categoryLabel.trim() : 'Generale';
     
     try {
-        const { data, error } = await supabase
+        // Query ultra-veloce basata solo sulla categoria esatta o ricerca semplice sul titolo
+        // Rimosso l'operatore .or() complesso che causava il timeout
+        let query = supabase
           .from('articles')
           .select('*')
-          .or(`category.ilike.${searchTerm},title.ilike.${searchTerm},summary.ilike.${searchTerm}`)
+          .eq('category', cleanLabel)
           .order('created_at', { ascending: false })
-          .limit(40);
+          .limit(25);
+
+        const { data, error } = await query;
 
         if (error) {
-            console.error("[DB-ARTICLES] Errore query cache:", error.message);
+            console.error(`[DB-ARTICLES] ❌ Errore timeout o query:`, error.message);
             return [];
         }
         return mapArticles(data);
@@ -42,7 +42,7 @@ const mapArticles = (data: any[] | null): Article[] => {
         date: a.published_date || a.date || new Date(a.created_at).toLocaleDateString(),
         category: a.category,
         imageUrl: a.image_url || '',
-        audioBase64: a.audio_base64 || '', // Allineato allo schema: audio_base64
+        audioBase64: a.audio_base_64 || a.audio_base64 || '', 
         sentimentScore: a.sentiment_score || 0.8,
         likeCount: a.like_count || 0,
         dislikeCount: a.dislike_count || 0
@@ -67,7 +67,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
             published_date: article.date, 
             sentiment_score: article.sentimentScore,
             image_url: article.imageUrl || null,
-            audio_base64: article.audioBase64 || null // Allineato allo schema: audio_base64
+            audio_base_64: article.audioBase64 || null
         };
 
         try {
@@ -82,7 +82,7 @@ export const saveArticles = async (categoryLabel: string, articles: Article[]): 
                     ...article,
                     id: data.id,
                     category: data.category,
-                    audioBase64: data.audio_base64
+                    audioBase64: data.audio_base_64
                 });
             }
         } catch (e) {}
@@ -98,7 +98,6 @@ export const updateArticleImage = async (articleUrl: string, imageUrl: string): 
 
 export const updateArticleAudio = async (articleUrl: string, audioBase64: string): Promise<void> => {
     try { 
-        // Corretto definitivamente in audio_base64
         await supabase.from('articles').update({ audio_base_64: audioBase64 }).eq('url', articleUrl); 
     } catch (e) {}
 };
