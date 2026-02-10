@@ -2,12 +2,7 @@
 import { supabase } from '../supabaseClient';
 import { Category, DEFAULT_CATEGORIES } from '../../types';
 
-/**
- * Recupera le categorie con fallback di resilienza.
- */
 export const getCategories = async (userId?: string): Promise<Category[]> => {
-    console.log(`[DB-CATS] 📡 Avvio query categorie. UserID: ${userId || 'Pubblico'}`);
-    
     try {
         let query = supabase
           .from('categories')
@@ -21,54 +16,71 @@ export const getCategories = async (userId?: string): Promise<Category[]> => {
         }
         
         const { data, error } = await query;
-        
-        if (error) {
-            console.warn("[DB-CATS] ⚠️ Errore query Supabase, uso fallback:", error.message);
-            return DEFAULT_CATEGORIES;
-        }
-
-        if (!data || data.length === 0) {
-            return DEFAULT_CATEGORIES;
-        }
-
-        console.log(`[DB-CATS] ✅ Query completata. Trovate ${data.length} categorie.`);
+        if (error || !data || data.length === 0) return DEFAULT_CATEGORIES;
         return data as Category[];
     } catch (e) {
-        console.error("[DB-CATS] ❌ Eccezione di rete (Failed to fetch?), uso categorie di default.");
         return DEFAULT_CATEGORIES;
     }
 };
 
 export const seedCategories = async (): Promise<void> => {
-    console.log("[DB-CATS] 🌱 Controllo se necessario il seeding...");
     try {
-        const { count, error } = await supabase
-            .from('categories')
-            .select('*', { count: 'exact', head: true });
-        
-        if (error) return;
-
+        const { count } = await supabase.from('categories').select('*', { count: 'exact', head: true });
         if (count === 0) {
-            const categoriesToInsert = DEFAULT_CATEGORIES.map(c => ({ 
-                label: c.label, 
-                value: c.value 
-            }));
-            await supabase.from('categories').insert(categoriesToInsert);
+            const toInsert = DEFAULT_CATEGORIES.map(c => ({ label: c.label, value: c.value }));
+            await supabase.from('categories').insert(toInsert);
         }
     } catch (e) {}
 };
 
 export const addCategory = async (label: string, value: string, userId: string): Promise<Category | null> => {
     try {
+        const cleanLabel = label.trim();
+        // 1. Check local standard categories first
+        if (DEFAULT_CATEGORIES.some(c => c.label.toLowerCase() === cleanLabel.toLowerCase())) {
+            return null;
+        }
+
+        // 2. Controllo duplicati case-insensitive nel DB per l'utente specifico o categorie pubbliche
+        const { data: existing } = await supabase
+          .from('categories')
+          .select('id, label')
+          .ilike('label', cleanLabel)
+          .or(`user_id.is.null,user_id.eq.${userId}`)
+          .maybeSingle();
+
+        if (existing) {
+            return null; 
+        }
+
         const { data, error } = await supabase
           .from('categories')
-          .insert([{ label, value, user_id: userId }])
+          .insert([{ label: cleanLabel, value, user_id: userId }])
           .select()
           .single();
           
-        if (error) return null;
+        if (error) throw error;
         return data as Category;
     } catch (e) {
+        console.error("[DB-CATS] Errore aggiunta categoria:", e);
         return null;
+    }
+};
+
+export const deleteCategory = async (categoryId: string, userId: string): Promise<boolean> => {
+    try {
+        const { error } = await supabase
+            .from('categories')
+            .delete()
+            .eq('id', categoryId)
+            .eq('user_id', userId);
+            
+        if (error) {
+            console.error("[DB-CATS] Errore delete:", error.message);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return false;
     }
 };
